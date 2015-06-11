@@ -6,19 +6,23 @@ Web-based NES Emulator that uses javascript and the HTML5 canvas
 <a href="http://htmlpreview.github.io/?https://github.com/shygoo/hexNES/blob/master/hexNES.htm">Demo current build</a>
 
 Keyboard bindings:
- Select: Q
- Start: E
- A: M
- B: N
- DPAD: WASD
- 
+<pre>
+Select: Q
+Start: E
+A: M
+B: N
+DPAD: WASD
+</pre>
+
 XBOX controller bindings:
- Select: Back
- Start: Start
- A: A
- B: X
- DPAD: DPAD/Left anologue
- 
+<pre>
+Select: Back
+Start: Start
+A: A
+B: X
+DPAD: DPAD/Left anologue
+</pre>
+
 This emulator is very early in development so there will be a lot of bugs.
 No memory mappers are currently implemented so only NROM games are expected to boot properly.
 You can view a comprehensive list of games and mappers here: http://tuxnes.sourceforge.net/nesmapper.txt
