@@ -1,0 +1,2699 @@
+<!--
+
+JS NES Emulator by shyguyhex 2015
+
+Thanks to:
+http://nesdev.com/NESDoc.pdf
+http://wiki.nesdev.com/
+http://www.obelisk.demon.co.uk/6502/reference.html
+http://www.visual6502.org/JSSim/expert.html
+http://blargg.8bitalley.com/nes-tests/instr_test-v4.zip
+queueRAM
+
+-->
+<!DOCTYPE html>
+<html>
+<head>
+<title>NES</title>
+<style>
+body{background-color:#EEE;}
+body, pre, select{font-family:consolas;font-size:11px;}
+button, input[type='file']{font-family:tahoma,verdana,arial;font-size:11px;}
+#fileInput{border: 1px solid #AAA;padding:5px;}
+#romstat{border:1px solid #AAA;display:inline-block;padding:5px;background-color:#000;color:#FFF;}
+#cpustat{border:1px solid #AAA;display:inline-block;padding:5px;background-color:#000;color:#FFF;line-height:11px;}
+#speed{border:1px solid #AAA;padding:2px;width:200px;display:inline-block;background-color:#DDD;}
+.pc{background-color:#660;color:#FFF;}
+.sp{background-color:#066;color:#FFF;}
+hr{border:none;border-top:1px solid #AAA;}
+pre{margin-top:0px;margin-bottom:0px;}
+td{vertical-align:top;border-left:1px solid #AAA;padding:5px;}
+.on{color:#FF0;font-weight:bold;}
+.z{color:#AAA;}
+
+/* stuff for 6502 disassembly */
+#data{display:inline-block;border:1px solid #AAA;margin-top:10px;padding:5px;line-height:11px;background-color:#000;color:#FFF;vertical-align:top;margin-top:0px;}
+.opjmp{color:#0C0;}
+.opbrk{color:#F44;}
+.opnop{color:#AAA;}
+.dis_addr{background-color:#444;color:#CCC;padding:0px 2px;margin-right:2px;line-height:11px;cursor:default;
+-webkit-touch-callout: none;
+-webkit-user-select: none;
+-khtml-user-select: none;
+-moz-user-select: none;
+-ms-user-select: none;
+user-select: none;}
+.dis_addrpc{background-color:#553;color:#FF0;padding:0px 2px;margin-right:2px;cursor:default;-webkit-touch-callout: none;
+-webkit-user-select: none;
+-khtml-user-select: none;
+-moz-user-select: none;
+-ms-user-select: none;}
+.dis_addrbp{color:#F77;}
+.dis_symbol{color:#CCC;}
+.dis_imm{color:#0FF;}
+.dis_xy{color:#FAA;}
+.dis_n{color:#FAF;}
+.dis_line{min-width:140px;cursor:default;}
+.dis_line:hover{background-color:#022;}
+.dis_na{color:#0FF;font-weight:bold;}
+.dis_ls{color:#FDA;}
+.prg-seek{width:100%;font-family:consolas;font-size:11px;padding:0px;margin-bottom:4px;display:block;border:none;}
+</style>
+</head>
+<body>
+<b>hexNES Emulator</b>
+<a href="#" style="font-weight:bold;" onclick="readme()">README</a>
+<br>
+<input type="file" id="fileInput">
+<div style="border:1px solid #AAA;padding:5px;display:inline-block;">
+<select id="hostrom">
+	<option disabled selected>Stream a ROM:</option>
+	<option value="Balloon Fight (USA).nes">Balloon Fight</option>
+	<option value="Galaga (Japan).nes">Galaga</option>
+	<option value="Super Mario Bros. (8155NOP).nes">Super Mario Bros (8155NOP)</option>
+	<option value="Super Mario Bros. (Japan, USA).nes">Super Mario Bros</option>
+	<option value="Mario Bros. (World).nes">Mario Bros</option>
+	<option value="Pac-Man (USA) (Namco).nes">Pac-Man</option>
+	<option value="Space Invaders (Japan).nes">Space Invaders</option>
+	<option value="Millipede (Japan).nes">Millipede</option>
+</select>
+<button id="gobtn" onclick="go()" disabled>Run</button>
+<button id="godbgbtn" onclick="goslow()" disabled>Run (debug)</button>
+<button id="stepbtn" onclick="step(); showcpustat(); show(prgview);" disabled>Step</button>
+<button id="stopbtn" onclick="stop()" disabled>Stop</button>
+<button id="resetbtn" onclick="reset()" disabled>Reset</button>
+<div id="speed">0 ops/sec | 0.00 MHz</div>
+</div>
+<hr>
+<div style="display:inline-block;vertical-align:top;text-align:center;">
+<canvas id="emu" usemap="#ui" width="512" height="480" style="background-color:#000;vertical-align:top;margin: 5px; margin-top: 0px;box-shadow: -5px 5px 5px #AAA;">This text is displayed if your browser does not support HTML5 Canvas.</canvas>
+<!--<div id="spr_ram" style="white-space:pre;background:#333;color:#FFF;padding:10px;vertical-align:top;"></div>-->
+</div>
+<div style="display:inline-block;vertical-align:top;">
+<pre id="cpustat">(no rom loaded)</pre><!--
+--><div id="memoryview" style="background-color:#000;padding:5px;display:inline-block;white-space:pre;line-height:11px;color:#FFF;vertical-align:top;"><!--
+	--><input type="text" id="memory_address" style="width:30px;font-family:consolas;font-size:11px;padding:1px;"> <!--
+	--><select>
+		<option value="0000">0000 Zero page</option>
+		<option value="0100">0100 Stack</option>
+		<option value="0200">0200 GP RAM</option>
+		<option value="2000">2000 IO Registers</option>
+		<option value="4020">4020 Expansion ROM</option>
+		<option value="6000">6000 Battery RAM</option>
+		<option value="8000">8000 PRG-RAM Lower</option>
+		<option value="C000">C000 PRG-RAM Upper</option>
+	</select> <!--
+	--><select id="memoryview_chipselect">
+		<option value="CPUMEM">CPU Memory</option>
+		<option value="PPUMEM">PPU Memory</option>
+		<option value="OAM">SPR-RAM (OAM)</option>
+	</select><!--
+	--><select style="display:none;">
+		<option value="0000">0000 Pattern Table 0</option>
+		<option value="1000">1000 Pattern Table 1</option>
+		<option value="2000">2000 Name Table 0</option>
+		<option value="23C0">23C0 Attribute Table 0</option>
+		<option value="2400">2400 Name Table 1</option>
+		<option value="27C0">27C0 Attribute Table 1</option>
+		<option value="2800">2800 Name Table 2</option>
+		<option value="2BC0">2BC0 Attribute Table 2</option>
+		<option value="2C00">2C00 Name Table 3</option>
+		<option value="2FC0">2FC0 Attribute Table 3</option>
+		<option value="3F00">3F00 Background Palettes</option>
+		<option value="3F10">3F10 Sprite Palettes</option>
+	</select><!--
+	--><div id="memoryview_frame" style="margin-top:5px;"></div>
+<label><input type="checkbox" id="memoryview_running" style="vertical-align:middle;">Live updates</label>
+</div><!--
+--><div id="data"></div><br>
+<pre id="romstat">(no rom loaded)</pre>
+</div><br>
+
+<!--Pattern table pre-render:<br>-->
+<canvas id="emuframe" width="80" height="2048" style="background-color:#000;display:none;">This text is displayed if your browser does not support HTML5 Canvas.</canvas>
+<canvas id="emubg" height="480" width="1024" style="background-color:#000;vertical-align:top;display:none;"></canvas>
+<img src="http://file.s.gp/scanlines.jpg" id="scanlines" style="display:none;"><br>
+<img src="http://file.s.gp/nes-controller.png" id="controller" style="display:none;">
+<canvas id="scanlines_canvas" width="2048" height="240" style="display:none;"></canvas>
+<canvas id="controller_canvas" width="60" height="24" style="display:none;"></canvas>
+<script>
+
+var monitor_hz = 0;
+
+function hzBenchmarker(){
+	var self = this;
+	this.running = true;
+	this.framecount = 0;
+	this.result = 0;
+	this.done = function(){};
+	this.run = function(){
+		setTimeout(function(){self.running = false;}, 1000);
+		if(self.running){
+			requestAnimationFrame(self.run);
+			self.framecount++;
+		} else {
+			self.result = Math.round(self.framecount / 10) * 10;
+			self.done();
+		}
+	}
+}
+
+var hz = new hzBenchmarker();
+hz.done = function(){
+	monitor_hz = this.result;
+	console.log("Monitor benchmarked @ " + monitor_hz + "Hz");
+}
+
+document.body.onload = function(){
+	hz.run();
+	scanlines_display.globalAlpha = 0.30; scanlines_display.drawImage(scanlines, 0, 0, 2048, 240);
+}
+
+function readme(){
+	alert('Keyboard bindings:\n-  Select: Q\n-  Start: E\n-  A: M\n-  B: N\n-  DPAD: WASD\n\nXBOX controller bindings:\n-  Select: Back\n-  Start: Start\n-  A: A\n-  B: X\n-  DPAD: DPAD/Left anologue\n\nThis emulator is very early in development so there will be a lot of bugs.\nNo memory mappers are currently implemented so only NROM games are expected to boot properly.\nYou can view a comprehensive list of games and mappers here:\nhttp://tuxnes.sourceforge.net/nesmapper.txt\n[Games with "---- (0)" under the mapper column are NROMs]');
+}
+
+if(document.cookie.indexOf('readme') == -1){
+	document.cookie = "readme";
+	readme();
+}
+
+// base functions/events and protos 
+function log(s){console.log(s)};
+Number.prototype.formatted = function (){n = this.toString();var s="";var d=1;for(var i=n.length;i--;i>-1){s=(!(d%3)&&i>0?',':'')+n[i]+s; d++;}return s;}
+function memcpy(arr1, start1, arr2, start2, len){ // copy chunks between u8 arrays
+	for(var i = 0; i < len; i++){
+		arr2[start2+i] = arr1[start1+i];
+	}
+}
+function memcmp(src1, ind1, src2, ind2, len){ // compare array chunks
+	for(var i = 0; i < len; i++){
+		if(src1[ind1+i] != src2[ind2+i]) return false;
+	} 
+	return true;
+}
+function hex(n, l){ // hex number with length
+	var ret = n.toString(16).toUpperCase();
+	while(ret.length < l) ret = "0"+ret;
+	return ret;
+}
+var ajax = new XMLHttpRequest();
+ajax.onreadystatechange = function(){
+	if(this.readyState == 4 && this.status == 200){
+		ROM = new Uint8Array(this.response);
+		loadrom(ROM);
+	}
+}
+window.addEventListener("gamepadconnected", function(e) {
+  usegamepad = true;
+});
+
+window.addEventListener("gamepaddisconnected", function(e) {
+	usegamepad = false;
+});
+
+// misc vars
+var scale   = 1.0;
+var running = 0;
+var frames  = 0;
+var fps     = 60;
+var usegamepad = false;
+
+// Misc NES internals
+var NES = {
+	// controller array: [A,B,Sel,Start,Up,Down,Left,Right],
+	// $4016
+	controller1:    [0, 0, 0, 0, 0, 0, 0, 0], // button statuses
+	controller1_c:   true, // controller is connected
+	controller1_st: 0,    // read counter
+	// $4017
+	controller2:    [0, 0, 0, 0, 0, 0, 0, 0],
+	controller2_c:  false,
+	controller2_st: 0
+};
+
+// PPU internals
+var PPU = {
+	spr_ram:    new Uint8Array(0x100),
+	// PPU Scroll Register:
+	scroll_x:   0,
+	scroll_y:   0,
+	scroll_st:  0, // first write (x) or second write (y) to 2005
+	// PPU Address Controller:
+	address:    0,
+	address_st: 0, // first write (msb) or second write (lsb) to 2006
+	// PPU Control Register 1:
+	nametable:  0x2000,
+	increment:  1,
+	ptable_spr: 0x0000,
+	ptable_bg:  0x0000,
+	spr_size:   0, // 0 = 8x8, 1 = 8x16
+	nmi:        0, // 0 = no nmi on vblank, 1 = nmi on vblank
+	vblank:     0,
+	// PPU Control Register 2:
+	monochrome: 0, // 0 = color, 1 = monochrome
+	clipbg:     0,
+	clipspr:    0,
+	showbg:     0,
+	showspr:    0,
+	bgcolor:    0 // bg color while ppu_monochrome=1, bg intensity while ppu_monochrome=0 ???
+};
+
+var OAM = PPU.spr_ram;
+
+// keyboard bindings
+var keybindings = {
+	81:2, // Q -> select
+	69:3, // E -> start
+	77:0, // M -> A
+	78:1, // N -> B
+	68:7, // D -> Right
+	65:6, // A -> Left
+	87:4, // W -> Up
+	83:5  // S -> Down
+};
+function classicbindings(){
+	keybindings = {88:0,90:1,16:2,13:3,38:4,40:5,37:6,39:7};
+}
+document.body.onkeydown = function(e){
+	var k = e.keyCode;
+	if(k in keybindings) mycontroller[keybindings[k]] = 1;
+}
+document.body.onkeyup = function(e){
+	var k = e.keyCode;
+	if(k in keybindings) mycontroller[keybindings[k]] = 0;
+}
+
+var BTN_A  = 0;
+var BTN_B  = 1;
+var BTN_SL = 2;
+var BTN_ST = 3;
+var BTN_U  = 4;
+var BTN_D  = 5;
+var BTN_L  = 6;
+var BTN_R  = 7;
+
+// XBOX controller bindings
+var buttonbindings = {
+	0:0, // A -> A
+	2:1, // X -> B
+	8:2, // select -> select
+	9:3, // start -> start
+	12:4, // d up -> d up
+	13:5, // d down -> d down
+	14:6, // d left -> d left
+	15:7  // d right -> d right
+};
+var axesbindings = {
+	// controller axis index: [binding when negative, binding when positive]
+	0: [7, 6], // x1 -> left right
+	1: [5, 4]  // y1 -> up down
+};
+
+var input_automation = {
+	// frame: button_index,
+	// (toggles the button)
+};
+
+function controller_event(){ // manual keyup/keydown replacement to be executed per frame
+	if(!navigator.getGamepads()[0]) return 0;
+	var gp = navigator.getGamepads()[0];
+	for(var i in mycontroller_gamepad){
+		mycontroller_gamepad[i] = 0;
+	}
+	for(var i in buttonbindings){
+		mycontroller_gamepad[buttonbindings[i]] |= gp.buttons[i].pressed|0;
+	}
+	for(var i in axesbindings){
+		var value = gp.axes[i];
+		var sign = !!(Math.sign(gp.axes[i]) & 0x80)|0;
+		var set = 1;
+		if(Math.abs(value) < 0.30) set = 0;
+		mycontroller_gamepad[axesbindings[i][sign]] |= set; // OR'd to account for axes bindings
+	}
+
+}
+
+// Map elements, set initial vals/htm
+var stepbtn     = document.getElementById("stepbtn");
+var gobtn       = document.getElementById("gobtn");
+var godbgbtn    = document.getElementById("godbgbtn");
+var stopbtn     = document.getElementById("stopbtn");
+var resetbtn    = document.getElementById("resetbtn");
+var fileInput   = document.getElementById("fileInput");
+var emustat     = document.getElementById("emustat");
+var cpustat     = document.getElementById("cpustat");
+var speed       = document.getElementById("speed");
+var emuframe    = document.getElementById("emuframe");
+var emugfx      = emuframe.getContext("2d");
+var emubg       = document.getElementById("emubg");
+var emubgfx     = emubg.getContext("2d");
+var hostrom     = document.getElementById("hostrom");
+var scanlines = document.getElementById("scanlines");
+var scanlines_canvas = document.getElementById("scanlines_canvas");
+var scanlines_display = scanlines_canvas.getContext("2d");
+var controller_im = document.getElementById("controller");
+var contoller_canvas = document.getElementById("controller_canvas");
+var controller_display = controller_canvas.getContext("2d");
+var memoryview_running = document.getElementById("memoryview_running");
+var memoryview_chipselect = document.getElementById("memoryview_chipselect");
+memoryview_chipselect.onchange = function(){
+	memoryview_chip = window[this.value];
+}
+controller_display.globalAlpha = 0.80;
+controller_display.drawImage(controller_im, 0, 0, 60, 24);
+
+fileInput.value = "";
+
+var emu = document.getElementById("emu");
+var emudisplay = emu.getContext("2d");
+emu.isfull = false;
+emu.ondblclick = function(){
+	if(!this.isfull){
+		var b = (screen.width/512);
+		var border = (screen.width*(b-(b|0))/2);
+		emu.style.borderLeft = emu.style.borderRight = border+"px solid #000000";
+		this.webkitRequestFullScreen ? this.webkitRequestFullScreen() : this.mozRequestFullScreen();
+		this.isfull = true;
+	} else {
+		emu.style.borderLeft = emu.style.borderRight = "none";
+		document.webkitCancelFullScreen ? document.webkitRequestFullScreen() : document.mozCancelFullScreen();
+		this.isfull = false;
+	}
+}
+
+hostrom.selectedIndex = 0;
+hostrom.onchange = function(){
+	stop();
+	ajax.open("GET", "http://file.s.gp/nesroms/"+hostrom.value, true);
+	ajax.responseType = "arraybuffer";
+	ajax.send();
+}
+
+
+// Main CPU registers
+var PC = 0x8000; // 16bit Program counter
+var AC = 0x00;   // 8bit  Accumulator register
+var XR = 0x00;   // 8bit  X register
+var YR = 0x00;   // 8bit  Y register
+var SP = 0x00;   // 8bit  Stack pointer
+
+var SR_N = false;  // Negative
+var SR_V = false;  // Overflow
+var SR__ = false;  // Unused bit
+var SR_B = false;  // Break
+var SR_D = false;  // Decimal
+var SR_I = false;  // Interrupt
+var SR_Z = false;  // Zero
+var SR_C = false;  // Carry
+
+// ROM load
+
+/*
+var mappers = {
+	0x02: [
+		function(){
+			rom initial load
+		},
+		{
+			extra w_events
+		},
+	],
+}
+*/
+
+var ROM;
+var mapperId;
+var CPUMEM = new Uint8Array(0x10000);
+var PPUMEM = new Uint8Array(0x10000);
+var reader = new FileReader();
+
+var C1 = {
+	vMirroring: null,
+	battery: null,
+	trainer: null,
+	fourScr: null,
+};
+
+fileInput.onchange = function(){
+	reader.readAsArrayBuffer(this.files[0]);
+}
+
+function loadrom(ROM){
+	var statstr = "";
+	var c1Byte = ROM[6];
+	statstr += ROM[4] + " PRG-ROM bank(s) | ";
+	statstr += ROM[5] + " VROM bank(s) | ";
+	statstr += ((C1.vMirroring = !!(c1Byte & 0x01)) ? "Vertical mirroring" : "Horizontal mirroring") + " | ";
+	statstr += ((C1.battery = !!(c1Byte & 0x02)) ? "SRAM enabled" : "No SRAM") + " | ";
+	statstr += ((C1.trainer = !!(c1Byte & 0x04)) ? "Trainer present" : "No trainer") + " | ";
+	statstr += ((C1.fourscr = !!(c1Byte & 0x08)) ? "Four-screen mirroring on" : "Four-screen mirroring off") + "| ";
+	mapperId = (ROM[6] >> 4) | (ROM[7] & 0xF0);
+	statstr += "Mapper: " + hex(mapperId,2);
+	document.getElementById("romstat").innerHTML = statstr;
+	memcpy(ROM, 0x10, CPUMEM, 0x8000, (ROM[4] * 0x4000)); // Copy ASM to CPUMEM
+	if(ROM[4]==1) memcpy(ROM, 0x10, CPUMEM, 0xC000, 0x4000); // Mirror PRG-ROM if there's only one bank present
+	PC = CPUMEM[0xFFFC] | (CPUMEM[0xFFFD] << 8);
+	prgview = PC;
+	memcpy(ROM, ROM[4] * 0x4000 + 0x10, PPUMEM, 0x0000, ROM[5] * 0x2000); // Copy VROM to PPUMEM
+	showcpustat();
+	show(prgview);
+	//showspr();
+	gobtn.disabled = false;
+	godbgbtn.disabled = false;
+	stepbtn.disabled = false;
+	resetbtn.disabled = false;
+	colors = {
+		0: 'rgba(0,0,0,0)',
+		1: '#DDD',
+		2: '#AAA',
+		3: '#666'
+	};
+	setScale(2.0);
+	go();
+}
+
+reader.onloadend = function(){ // no mappers yet
+	ROM = new Uint8Array(this.result);
+	loadrom(ROM);
+}
+
+
+// RENDERING
+
+var MODE_SPR = 0;
+var MODE_BG  = 1;
+
+// cache of tile indexes and colors
+var spr_cache = [];
+var bg_cache = [];
+
+var bg_activecache = []; // avoid unnecessary rendering to the background canvas
+
+function cache_tile(index, palette, mode){ // cache tile and/or return index of tile
+	/* room for little improvements:
+		cache color channels seperately (would cut down on pixel drawing if different palettes share colors)
+		cache flipped tiles only when necessary
+	*/
+	//  palette = 0,1,2,3    //   color = 1,2,3   //   mode: 0 = spr, 1 = bg
+	var cache = mode ? spr_cache : bg_cache;
+	var palette_addr = (mode ? 0x3F00 : 0x3F10) + palette * 4;
+	var cache_data = index << 24 | PPUMEM[palette_addr + 1] << 16 | PPUMEM[palette_addr + 2] << 8 | PPUMEM[palette_addr + 3];
+	var cache_index = 0;
+	for(var cache_index = 0; cache_index < cache.length; cache_index++){
+		if(cache[cache_index] == cache_data){
+			return cache_index;
+		}
+	}
+	// if tile isnt present in cache:
+	cache_index = cache.push(cache_data) - 1;
+	var ptable_addr = mode ? PPU.ptable_bg : PPU.ptable_spr;
+	var bitmap_addr = ptable_addr + index*16;
+	var mode_offset = mode ? 32 * scale : 0; // 5th column if bg
+	for(var i = 0; i < 8; i++){ // i = row
+		var row_bits1 = PPUMEM[bitmap_addr + i];
+		var row_bits2 = PPUMEM[bitmap_addr + i + 8];
+		for(var j = 0; j < 8; j++){ // j = col
+			var c = !!(row_bits1 << j & 0x80) + !!(row_bits2 << j & 0x80) * 2;
+			emugfx.fillStyle = c ? nes_colors[PPUMEM[palette_addr + c]] : "rgba(0,0,0,0)"; // should probably limit this
+			emugfx.fillRect((j)*scale + mode_offset, (cache_index*8+i)*scale, scale, scale); // regular
+			if(!mode){ // flipping for sprite tiles
+				emugfx.fillRect(((8-j))*scale + 7*scale, (cache_index*8+i)*scale, scale, scale); // horizontal flip
+				emugfx.fillRect((j)*scale + 16*scale, (cache_index*8+(7-i))*scale, scale, scale); // vertical flip
+				emugfx.fillRect(((8-j))*scale + 23*scale, (cache_index*8+(7-i))*scale, scale, scale); // horizontal & vertical flip
+			}
+		}
+	}
+	return cache_index;
+}
+
+function draw_tile(tile_index, mode, palette, x, y, hflip, vflip){ // mode 0 = sprite, mode 1 = bg
+	var cache_index = cache_tile(tile_index, palette, mode); // cache tile and/or grab cache index
+	var mode_offset = mode ? 32 * scale : 0; // 5th column if bg
+	var canvas = mode ? emubgfx : emudisplay;
+	var size = 8*scale;
+	canvas.drawImage(emuframe, (hflip*8*scale)+(vflip*16*scale) + mode_offset, cache_index*size, size, size, x*scale, y*scale, size, size);
+	if(PPU.spr_size){ // 8x16 sprite
+		cache_index++;
+		canvas.drawImage(emuframe, (hflip*8*scale)+(vflip*16*scale) + mode_offset, cache_index*size, size, size, x*scale, y*scale+size, size, size);
+	}
+}
+
+function draw_oam(bg_priority){ // draw sprites from OAM directly to the game canvas
+	var oamdebug = window.oamdebug;
+	for(var i = 0xFC; i > -1; i -= 4){
+		var attributes = PPU.spr_ram[i + 0x02];
+		var priority = !!(attributes & 0x20);
+		if(priority != bg_priority) continue;
+		var y = PPU.spr_ram[i + 0x00];
+		if(y > 0xF6) continue;
+		var x = PPU.spr_ram[i + 0x03];
+		var palette = (attributes & 3);
+		var hflip = !!(attributes & 0x40)|0;
+		var vflip = !!(attributes & 0x80)|0;
+		var index = PPU.spr_ram[i + 0x01]; // (PPU.ptable_spr / 16) + 
+		draw_tile(index, MODE_SPR, palette, x, y, hflip, vflip);
+		if(oamdebug){
+			emudisplay.fillStyle = "#000";
+			emudisplay.fillRect(x*scale,y*scale, 11, 11);
+			emudisplay.fillStyle = "#FFF";
+			emudisplay.fillText(hex(i,2), x* scale, (y+5)*scale);	
+		}
+	}
+}
+
+function draw_bg(){ // draw background tiles to background canvas
+	emubgfx.clearRect(0,0,512*scale, 240*scale);
+	var bg_offset = PPU.ptable_bg;
+	var sc = PPU.scroll_x;
+	for(var i = 0; i < 960; i++){
+		var index = PPUMEM[ppu_map(PPU.nametable+i)];
+		var attribute = PPUMEM[ppu_map(PPU.nametable+0x3C0)+((i/0x80)|0)*8+(((i&0x1F)/4)|0)];
+		var square = ((i&3)/2)|0+(i&0x40)>>5;
+		var palette = (attribute&(3<<(square*2)))>>(square*2);              
+		var size = 8*scale;
+		if(i%32+1 >= (sc/8)){
+			draw_tile(index, MODE_BG, palette, (i%32)*8, (i/32|0)*8, 0, 0);
+		}
+		index = PPUMEM[ppu_map(PPU.nametable+0x400+i)]; //(PPU.ptable_bg / 16) + 
+		attribute = PPUMEM[ppu_map(PPU.nametable+0x7C0)+((i/0x80)|0)*8+(((i&0x1F)/4)|0)];
+		square = ((i&3)/2)|0+(i&0x40)>>5;
+		palette = (attribute&(3<<square*2))>>square*2;
+		size = 8*scale;
+		if(i%32+32 < 32+(sc/8))
+		draw_tile(index, MODE_BG, palette, (i%32)*8 + 256, (i/32|0)*8, 0, 0);
+	}
+	emudisplay.drawImage(emubg, PPU.scroll_x*scale, 0, 256*scale, 240*scale, 0, 0, 256*scale, 240*scale);
+}
+
+function draw_bg2(){
+	for(var i = 0; i < 64; i++) {
+		var n_index = (i&7)*4+(i&0xF8)*16;
+	}
+}
+
+
+var fps30mode = false;
+var frameskip = false;
+
+function draw_frame(){ // 60fps loop: run CPU until vblank, draw frame to game canvas
+	requestAnimationFrame(draw_frame);
+	if(!running) return 0;
+	keyloop(); // netplay keys
+	if(!frameskip){
+		emudisplay.clearRect(0, 0, 256*scale, 240*scale);
+		var x;
+		var y;
+		var attributes;
+		var colorset;
+		var priority;
+		var hflip;
+		var vflip;
+		var index;
+		if(PPU.showspr) draw_oam(1); // draw OAM (under background pass)
+		if(PPU.showbg)  draw_bg();   // draw background
+		if(PPU.showspr) draw_oam(0); // draw OAM (over background pass)
+		emudisplay.drawImage(scanlines_canvas, (Math.random()*1792)|0, 0, 256, 240, 0, 0, 256 * scale, 240 * scale); // scanlines effect
+	}
+	if(fps30mode) frameskip = !frameskip;
+	//emudisplay.drawImage(controller_canvas, 0, 0, 60, 24, (256*scale)-65, (240*scale)-29, 60, 24); // controller image
+	controller_event();
+	/*
+	if(frames in input_automation){
+		NES.controller1[input_automation[frames]] = !NES.controller1[input_automation[frames]]|1;
+	}*/
+	while(!PPU.vblank && running) step(); // CPU execution happens here
+	PPU.vblank = 0;
+	frames++;
+	if(window.superdebug) showcpustat();
+	if(memoryview_running.checked) memoryview_show();
+
+}
+
+function setScale(factor){
+	scale = factor;
+	emu.width = scale * 256;
+	emu.height = scale * 240;
+	emuframe.width = scale * 40;
+	emuframe.height = scale * 4096;
+	emugfx.clearRect(0, 0, emuframe.width, emuframe.height);
+	emudisplay.clearRect(0, 0, emu.width, emu.height);
+	//prerender();
+}
+
+// Debugging/tracking
+var hooks = [];
+var pc_breakpoints = {};
+var w_breakpoints  = {};
+var r_breakpoints  = {};
+function pc_bp_check(a){
+	return a in pc_breakpoints;
+}
+function r_bp_check(a){
+	return a in r_breakpoints;
+}
+function w_bp_check(a){
+	return a in w_breakpoints;
+}
+function pc_bp_toggle(a){
+	pc_bp_check(a) ? delete pc_breakpoints[a] : pc_breakpoints[a] = 1;
+}
+function w_bp_toggle(a){
+	w_bp_check(a) ? delete w_breakpoints[a] : w_breakpoints[a] = 1;
+}
+function r_bp_toggle(a){
+	r_bp_check(a) ? delete r_breakpoints[a] : r_breakpoints[a] = 1;
+}
+
+
+var prgview = PC;
+var ppumem = 0x0000;
+var pctrace = new Array(10);
+var dbg = true;
+function srstat(){
+	return (SR_N ? "N" : "n") +
+	(SR_V ? "V" : "v") +
+	"_" +
+	(SR_B ? "B" : "b") +
+	(SR_D ? "D" : "d") +
+	(SR_I ? "I" : "i") +
+	(SR_Z ? "Z" : "z") +
+	(SR_C ? "C" : "c");
+}
+function showcpustat(){
+	// this is all very slow and should use DOM functions later
+	var cpustatstr = "<table><tr><td style=\"border-left:none;\"><center><b>6502 Registers</b></center>";
+	cpustatstr += "PC: " + hex(PC,4) + "\nAC: " + hex(AC,2) + " / XR: " + hex(XR,2) + " / YR: " + hex(YR,2) + "\nSP: " + hex(SP,2) + "\n";
+	cpustatstr += "SR: " + hex(getSR(),2) + " " + srstat() + "<hr>";
+	cpustatstr += "<b>Vectors</b><br>NMI: "+hex(get16(V_NMI))+" / RST: "+hex(get16(V_RST))+" / BRK: "+hex(get16(V_BRK)) + "<hr>";
+	cpustatstr += "Clock cycles: "+cycles.formatted() + "<br>Frames: " + frames.formatted() +"<hr>";
+	cpustatstr += "<center><b>I/O Registers</b></center>";
+	cpustatstr += "2000: " + hex(CPUMEM[0x2000], 2) + " [PPU Control 1]\n" +
+	              "2001: " + hex(CPUMEM[0x2001], 2) + " [PPU Control 2]\n" +
+	              "2002: " + hex(CPUMEM[0x2002], 2) + " [PPU Status]\n" +
+	              "2003: " + hex(CPUMEM[0x2003], 2) + " [SPR-RAM Address]\n" +
+	              "2004: " + hex(CPUMEM[0x2004], 2) + " [SPR-RAM I/O]\n" +
+	              "2005: " + hex(CPUMEM[0x2005], 2) + " [PPU Scroll]\n" +
+	              "2006: " + hex(CPUMEM[0x2006], 2) + " [VRAM Address Control]\n" +
+	              "2007: " + hex(CPUMEM[0x2007], 2) + " [VRAM I/O]\n" +
+	              "4014: " + hex(CPUMEM[0x4014], 2) + " [Sprite DMA]\n" +
+	              "4016: " + hex(CPUMEM[0x4016], 2) + " [Joypad 1]\n" +
+	              "4017: " + hex(CPUMEM[0x4017], 2) + " [Joypad 2]<hr>";
+	cpustatstr += "<center><b>pAPU I/O Registers</b></center>" +
+	              "4000: " + hex(CPUMEM[0x4000], 2) + " [Pulse 1 Control]\n" +
+	              "4001: " + hex(CPUMEM[0x4001], 2) + " [Pulse 1 Ramp Control]\n" +
+	              "4002: " + hex(CPUMEM[0x4002], 2) + " [Pulse 1 Fine Tune]\n" +
+	              "4003: " + hex(CPUMEM[0x4003], 2) + " [Pulse 1 Coarse Tune]\n" +
+	              "4004: " + hex(CPUMEM[0x4004], 2) + " [Pulse 2 Control]\n" +
+	              "4005: " + hex(CPUMEM[0x4005], 2) + " [Pulse 2 Ramp Control]\n" +
+	              "4006: " + hex(CPUMEM[0x4006], 2) + " [Pulse 2 Fine Tune]\n" +
+	              "4007: " + hex(CPUMEM[0x4007], 2) + " [Pulse 2 Coarse Tune]\n" +
+	              "4008: " + hex(CPUMEM[0x4008], 2) + " [Triangle Control 1]\n" +
+	              "4009: " + hex(CPUMEM[0x4009], 2) + " [Triangle Control 2]\n" +
+	              "400A: " + hex(CPUMEM[0x400A], 2) + " [Triangle Frequency 1]\n" +
+	              "400B: " + hex(CPUMEM[0x400B], 2) + " [Triangle Frequency 2]\n" +
+	              "400C: " + hex(CPUMEM[0x400C], 2) + " [Noise Control 1]\n" +
+	              // 400D unknown
+	              "400E: " + hex(CPUMEM[0x400E], 2) + " [Noise Frequency 1]\n" +
+	              "400F: " + hex(CPUMEM[0x400F], 2) + " [Noise Frequency 2]\n" +
+	              "4010: " + hex(CPUMEM[0x4010], 2) + " [Delta Modulation Control]\n" +
+	              "4011: " + hex(CPUMEM[0x4011], 2) + " [Delta Modulation D/A]\n" +
+	              "4012: " + hex(CPUMEM[0x4012], 2) + " [Delta Modulation Address]\n" +
+	              "4013: " + hex(CPUMEM[0x4013], 2) + " [Delta Modulation Data Length]\n" +
+				  "4015: " + hex(CPUMEM[0x4015], 2) + " [Sound / Vertical Clock Signal]\n</td>";
+	cpustatstr += "</tr></table>"
+	cpustat.innerHTML = cpustatstr;
+}
+
+var memoryview_addrcells = new Array(32);
+var memoryview_valcells = new Array(256);
+var memoryview_valcache = new Array(256);
+var memoryview_chip     = CPUMEM;
+var memoryview_frame = document.getElementById("memoryview_frame");
+function memoryview_init(){
+	var guiderow = document.createElement("div");
+	guiderow.style.backgroundColor = "#444";
+	guiderow.style.color = "#CCC";
+	guiderow.style.padding = "0px 1px 1px 3px";
+	guiderow.style.display = "inline-block";
+	guiderow.appendChild(document.createTextNode("    00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F")); // guidecells
+	memoryview_frame.appendChild(guiderow);
+	for(var i = 0; i < 16; i++){
+		var row = document.createElement("div");
+		var addr = document.createElement("span");
+		addr.style.backgroundColor = "#444";
+		addr.style.color = "#CCC";
+		addr.style.padding = "0px 1px";
+		addr.style.marginRight = "1px";
+		addr.style.textAlign = "right";
+		addr.innerHTML = hex(i*16,4);
+		memoryview_addrcells[i] = addr;
+		row.appendChild(addr);
+		for(var j = 0; j < 16; j++) {
+			var v = document.createTextNode("00")
+			//v.appendChild();
+			memoryview_valcells[i*16+j] = v;
+			row.appendChild(v);
+			row.appendChild(document.createTextNode(" "));
+		}
+		
+		memoryview_frame.appendChild(row);
+	}
+}
+
+function memoryview_show(){
+	for(var i = 0; i < 256; i++){
+		if(memoryview_valcache[i] != memoryview_chip[i]){
+			memoryview_valcells[i].nodeValue = hex(memoryview_chip[i],2);
+			memoryview_valcache[i] = memoryview_chip[i];
+		}
+	}
+}
+
+function ppu_map(a){ // convert PPU logical addresses
+	a = a > 0x4000 ? a - 0x4000 : a; // $4000 mirrors
+	if(a > 0x3F0F && a < 0x3F20 && !(a % 4)){
+		return a & 0xFF0F; // palette bg color mirror
+	} else if(a > 0x3F1F && a < 0x4000){ // pallette mirrors
+		return ppu_mirror(0x3F00 + (a % 0x20));
+	} else if(a > 0x2FFF && a < 0x3F00){ // name/attribute tables mirror
+		return a - 0x1000;
+	}
+	if(C1.vMirroring) {// vertical mirroring
+		if(a > 0x27FF && a < 0x2C00 || a > 0x2BFF && a < 0x3000) return a - 0x800; // L3 -> P1, L4 -> P2
+	} else { // horizontal mirroring
+		if(a > 0x23FF && a < 0x2800) return a - 0x400;
+		if(a > 0x2BFF && a < 0x2300) return a - 0x800;
+	}
+	return a;
+}
+
+for(var i = 0; i < 0x100; i += 4){ // hide all OAM sprites on start up
+	PPU.spr_ram[i] = 0xF8;
+}
+
+// CPU Read/write events
+var w_events = {
+	0x2000: function(v){
+		PPU.nametable  = 0x2000 + (v & 3) * 0x400;
+		PPU.increment  = (v & 4) ? 32 : 1;
+		PPU.ptable_spr = ((v & 8) >> 3) * 0x1000;
+		PPU.ptable_bg  = ((v & 16) >> 4) * 0x1000;
+		PPU.spr_size   = (v & 32) >> 5;
+		PPU.nmi        = (v & 0x80) >> 7;
+	},
+	0x2001: function(v){
+		PPU.monochrome = v & 1;
+		PPU.clipbg     = (v & 2) >> 1;
+		PPU.clipspr    = (v & 4) >> 2;
+		PPU.showbg     = (v & 8) >> 3;
+		PPU.showspr    = (v & 16) >> 4;
+		PPU.bgcolor    = (v & 192) >> 6;
+	},
+	0x2003: function(v){
+	},
+	0x2004: function(v){
+		PPU.spr_ram[CPUMEM[0x2003]] = v;
+		CPUMEM[0x2003] = (CPUMEM[0x2003]+1)&0XFF;
+	},
+	0x2005: function(v){
+		if(!PPU.scroll_st) {
+			PPU.scroll_x = v;
+			PPU.scroll_st = 1;
+		} else {
+			PPU.scroll_y = v;
+			PPU.scroll_st = 0;
+		}
+	},
+	0x2006: function(v){
+		if(PPU.address_st == 0) {
+			PPU.address = (v << 8);
+			PPU.address_st = 1;
+		} else {
+			PPU.address = (PPU.address & 0xFF00) | v;
+			PPU.address_st = 0;
+		}
+	},
+	0x2007: function(v){ // VRAM I/O
+		var addr = ppu_map(PPU.address)
+		if(addr > 0x3EFF & addr < 0x3F20){
+			var m = "";
+			for(var i = 0x3F00; i < 0x3F20; i++){
+				m += hex(PPUMEM[i],2) + " ";
+			}
+		}
+		PPUMEM[ppu_map(PPU.address)] = v;
+		if(ppu_map(PPU.address) == 0x3F00) emu.style.backgroundColor = nes_colors[PPUMEM[0x3F00]]
+		PPU.address = (PPU.address+PPU.increment) & 0xFFFF;
+	},
+	0x4014: function(v){ // SPR-RAM dma
+		memcpy(CPUMEM, v*0x100, PPU.spr_ram, 0, 0x100);
+		cycles += 512;
+	},
+	0x4016: function(v){
+		PPU.controller1_st = 0; // needs elaboration
+	},
+	0x4017: function(v){
+		PPU.controller2_st = 0; // needs elaboration
+	},
+};
+var r_events = { // triggered after the cpu accesses memory 
+	0x2002: function(v){
+		CPUMEM[0x2002] &= 0x7F;
+		PPU.address = 0;
+		PPU.address_st = 0;
+	},
+	0x2004: function(v){
+		//PPU.spr_ram[CPUMEM[0x2003]] = v;
+		//CPUMEM[0x2003]++;
+	},
+	0x2007: function(v){ // VRAM I/O non-palette
+		var addr = ppu_map(PPU.address)
+		if(addr > 0x3EFF && addr < 0x4000) return;
+		CPUMEM[0x2007] = PPUMEM[addr];
+		PPU.address = (PPU.address+PPU.increment) & 0xFFFF;
+	},
+};
+var r_events_pre = { // triggered before the cpu accesses memory
+	0x2007: function(v){ // PPUMEM mirroring & palette reads
+		var addr = ppu_map(PPU.address);
+		if(addr < 0x3F00) return;
+		CPUMEM[0x2007] = PPUMEM[addr];
+		PPU.address = (PPU.address+PPU.increment) & 0xFFFF;
+	},
+	0x4016: function(v){
+		CPUMEM[0x4016] = 0 | NES.controller1[NES.controller1_st];
+		NES.controller1_st++;
+		if(NES.controller1_st > 7) NES.controller1_st = 0;
+	},
+	0x4017: function(v){
+		CPUMEM[0x4017] = 0 | NES.controller2[NES.controller2_st];
+		NES.controller2_st++;
+		if(NES.controller2_st > 7) NES.controller2_st = 0;
+	},
+};
+
+// Base math for 6502
+
+var cycles = 0;
+var cycles_p = 0; // MHz tracking
+var cycles_v1 = 0; // vblank handling
+var cycles_v2 = 0; // vblank handling
+
+var V_NMI = 0xFFFA; // non maskable interrupts
+var V_RST = 0xFFFC; // console reset/startup
+var V_BRK = 0xFFFE; // interrupt request - maskable interrupt (BRK)
+
+
+function getSR(){ // convert SR object to char
+	//with(SR)
+	return SR_N<<7|SR_V<<6|1<<5|SR_B<<4|SR_D<<3|SR_I<<2|SR_Z<<1|SR_C;
+}
+function setSR(n){ // fill SR object with char
+	//with(SR){
+		SR_N = n >> 7;;
+		SR_V = (n & 0x40) >> 6;
+		SR_B = (n & 0x10) >> 4;
+		SR_D = (n & 0x08) >> 3;
+		SR_I = (n & 0x04) >> 2;
+		SR_Z = (n & 0x02) >> 1;
+		SR_C = (n & 0x01);
+	//}
+}
+
+function get16(n){ // return 16 bit value from CPUMEM[n]
+	return (CPUMEM[n+1] << 8) | CPUMEM[n];
+}
+function push(n){ // push 8 bit value onto stack
+	cpu_set(0x100+SP, n);
+	SP = (SP - 1) & 0xFF;
+}
+function push16(n){ // push 16 bit value onto stack
+	push(n >> 8);
+	push(n & 0xFF);
+}
+function pull(){ // pull 8 bit value from stack, return value
+	//cycles += 2; // cost more than push for some reason?
+	SP = (SP + 1) & 0xFF;
+	var ret = cpu_get(0x100+SP);
+	return ret;
+}
+function pull16(){ // pull 16 bit value from stack, return value
+	var ret = pull() | (pull()<<8);
+	//console.log(ret.toString(16));
+	return ret;
+}
+function incPC(n){ // increment PC by n, default to 1
+	PC += n || 1;
+}
+function setPC(n){ // set PC to n
+	PC = n;
+}
+function setZN(n){ // using n, set SR_N and SR_Z accordingly 
+	SR_N = !!(n & 0x80);
+	SR_Z = !n;
+}
+function rol(n){ // 1 bit left rotation for 8bit number
+	var c = !!(n & 0x80);
+	n = ((n << 1) | SR_C) & 0xFF;
+	SR_C = c;
+	return n;
+}
+function ror(n){ // 1 bit right rotation for 8bit number
+	var c = (n & 0x01)
+	n = ((SR_C << 7) | (n >> 1)) & 0xFF;
+	SR_C = c;
+	return n;
+}
+function bytesign(n){ // returns 0x80 if negative, 0x00 if positive
+	return (n & 0x80);
+}
+function s8(n){  // technically convert u8 to s8
+	var v = n & 0x7F;
+	return bytesign(n) ? (-128) + v : v;
+}
+// addressing functions
+function imm(){ // 8 bit value at CPUMEM[PC+1]
+	return CPUMEM[PC+1];
+}
+function abs(){ // 16 bit value at CPUMEM[PC+1]
+	cycles++;
+	return (CPUMEM[PC+2] << 8) | CPUMEM[PC+1];
+}
+function a_zpg(){ // dont use this i guess?
+	cycles++; // ?
+	return imm();
+}
+function a_zpg_x(){
+	cycles++;
+	return (imm() + XR) & 0xFF;
+}
+function a_zpg_y(){
+	cycles++;
+	return (a_zpg() + YR) & 0xFF;
+}
+function a_abs_x(){
+	cycles++; // addition of XR
+	var t = (abs() + XR);
+	if(t & 0x10000) cycles++;
+	return t & 0xFFFF;
+}
+function a_abs_y(){
+	cycles++; // addition of YR
+	var t = (abs() + YR);
+	if(t & 0x10000) cycles++;
+	return t & 0xFFFF;
+}
+function a_ind_x(){
+	cycles++; // ???
+	return cpu_get16i((imm() + XR) & 0xFF);
+}
+function a_ind_y(){
+	var i = (cpu_get16i(imm()) + YR);
+	if(i & 0x10000) cycles++;
+	return i & 0xFFFF;
+}
+function a_ind16(){
+	return get16(abs());
+}
+function branch(){ // perform relative branch using CPUMEM[PC+1]
+	cycles++;
+	var target = PC + s8(imm()+2);
+	if(target & 0x10000) cycles++; // correct?
+	PC = target & 0xFFFF;
+}
+function rmw(){ // account for the extra clock cycle in rmw instructions
+	cycles++;
+}
+
+// cpu r/w wrappers
+function cpu_map(address){
+	if(address > 0x2007 && address < 0x4000){return 0x2000 + (address & 7);} // PPU register mirrors
+	else if(address > 0x7FF & address < 0x2000){return address & 0x7FF;} // RAM mirrors
+	else{return address;}
+}
+function cpu_isregister(address){
+	return ((address > 0x1FFF && address < 0x2008) || (address > 0x3FFF && address < 0x4018));
+}
+function cpu_set(address, value){
+	address = cpu_map(address);
+	cycles++;
+	CPUMEM[address] = value;
+	//if(w_bp_check(address)){console.log(hex(address)); stop();}
+	if(cpu_isregister(address) && address in w_events) w_events[address](value);
+}
+function cpu_set16(address, value){
+	cpu_set(address, value & 0xFF);
+	cpu_set(address+1, value >> 8);
+}
+function cpu_get(address){
+	address = cpu_map(address);
+	cycles++;
+	//if(r_bp_check(address)) stop();
+	if(cpu_isregister(address) && address in r_events_pre) r_events_pre[address]();
+	var i = CPUMEM[address];
+	if(cpu_isregister(address) && address in r_events) r_events[address]();
+	return i;
+}
+function cpu_get16(address){
+	return cpu_get(address+1) << 8 | cpu_get(address);
+}
+function cpu_get16i(address){ // version for 6502's bugged indirect addressing
+	var a = address;
+	return (a & 0xFF) == 0xFF ? ((cpu_get(a & 0xFF00) << 8) | cpu_get(a)) : cpu_get16(a); // 6502 indirect bug
+}
+function cpu_interrupt(vector){
+	SR_B = true;
+	push16(PC);
+	push(getSR());
+	PC = cpu_get16(vector);
+	SR_I = true;
+}
+
+
+// 6502 instruction set
+var operations = {
+ // todo
+  // adjust all addressing calls for proper clock cycle counts
+  // r/m/w operations need rmw()
+  // finish implementing cpu read/write wrapper functions
+	0x00: function(){ // brk - force interrupt #cycles good
+		incPC(2);
+		cpu_interrupt(V_BRK);
+	},
+	0x01: function(){ // ORA (ind, X) // cycles good
+		AC |= cpu_get(a_ind_x());
+		setZN(AC);
+		incPC(2);
+	},
+	0x05: function(){ // ORA zpg // cycles good
+		AC |= cpu_get(imm());
+		setZN(AC);
+		incPC(2);
+	},
+	0x06: function(){ // ASL zpg // RMW, cycles okay
+		var i = cpu_get(imm());
+		SR_C = !!(i & 0x80);
+		i = (i << 1) & 0xFF;
+		rmw();
+		cpu_set(imm(), i);
+		setZN(i);
+		incPC(2);
+	},
+	0x08: function(){ // php - push processor status // cycles good
+		push(getSR() | 0x10);
+		incPC();
+	},
+	0x09: function(){ // ora imm8 // cycles good
+		AC |= imm();
+		setZN(AC);
+		incPC(2);
+	},
+	0x0A: function(){ // ASL ac, (AC<<1) // cycles good
+		SR_C = !!(AC & 0x80);
+		AC = (AC << 1) & 0xFF;
+		setZN(AC);
+		incPC();
+	},
+	0x0D: function(){ // ora abs // cycles good
+		AC |= cpu_get(abs());
+		setZN(AC);
+		incPC(3);
+	},
+	0x0E: function(){ // ASL abs // RMW, cycles okay
+		var a = abs();
+		var i = cpu_get(a);
+		SR_C = !!(i & 0x80);
+		i = (i << 1) & 0xFF;
+		rmw();
+		cpu_set(a, i);
+		setZN(i);
+		incPC(3);
+	},
+	0x10: function(){ // bpl rel - branch if positive / SR_N clear // cycles good
+		if(!SR_N){branch();}
+		else{incPC(2);}
+	},
+	0x11: function(){ // ora (ind),y
+		AC |= cpu_get(a_ind_y());
+		setZN(AC);
+		incPC(2);
+	},
+	0x15: function(){ // ora zpg,x
+		AC |= cpu_get(a_zpg_x());
+		setZN(AC);
+		incPC(2);
+	},
+	0x16: function(){ // ASL zpg,X
+		var i = a_zpg_x();
+		SR_C = !!(CPUMEM[i] & 0x80);
+		CPUMEM[i] <<= 1;
+		setZN(CPUMEM[i]);
+		incPC(2);
+	},
+	0x18: function(){ // clc - clear carry flag
+		SR_C = false;
+		incPC();
+	},
+	0x19: function(){ // ora abs,y
+		AC |= cpu_get(a_abs_y());
+		setZN(AC);
+		incPC(3);
+	},
+	0x1D: function(){ // ora abs,x
+		AC |= cpu_get(a_abs_x());
+		setZN(AC);
+		incPC(3);
+	},
+	0x1E: function(){ // asl abs,x
+		var a = a_abs_x();
+		SR_C = !!(CPUMEM[a] & 0x80);
+		CPUMEM[a] <<= 1;
+		setZN(CPUMEM[a]);
+		incPC(3);
+	},
+	0x20: function(){ // JSR abs - push PC and jmp to 16 bit abs # cycles good
+		push16(PC+2);
+		setPC(abs());
+	},
+	0x21: function(){ // and (ind, X)
+		AC &= cpu_get(a_ind_x());
+		setZN(AC);
+		incPC(2);
+	},
+	0x24: function(){ // BIT zpg   #cycles good
+		var i = cpu_get(imm());
+		var result = AC & i;
+		SR_Z = !result;
+		SR_V = !!(i & 0x40);
+		SR_N = !!(i & 0x80);
+		incPC(2);
+	},
+	0x25: function(){ // AND zpg # cycles good
+		AC &= cpu_get(imm());
+		setZN(AC);
+		incPC(2);
+	},
+	0x26: function(){ // rol zpg
+		var i = imm();
+		var n = CPUMEM[i];
+		CPUMEM[i] = rol(n);
+		setZN(CPUMEM[i]);
+		incPC(2);
+	},
+	0x28: function(){ // plp - pull processor status
+		setSR(pull() & 0xEF);
+		incPC();
+	},
+	0x29: function(){ // AND imm
+		AC &= imm();
+		setZN(AC);
+		incPC(2);
+	},
+	0x2A: function(){ // rol AC
+		AC = rol(AC);
+		setZN(AC);
+		incPC();
+	},
+	0x2C: function(){ // BIT abs #cycles good
+		var i = cpu_get(abs());
+		var result = AC & i;
+		SR_Z = !result;
+		SR_V = !!(i & 0x40);
+		SR_N = !!(i & 0x80);
+		incPC(3);
+	},
+	0x2D: function(){ // AND abs #cycles good
+		AC &= cpu_get(abs());
+		setZN(AC);
+		incPC(3);
+	},
+	0x2E: function(){ // rol abs
+		var i = abs();
+		CPUMEM[i] = rol(CPUMEM[i]);
+		setZN(CPUMEM[i]);
+		incPC(3);
+	},
+	0x30: function(){ // bmi - branch if n flag set
+		if(SR_N){branch();}
+		else{incPC(2);}
+	},
+	0x31: function(){ // and (ind),y
+		AC &= cpu_get(a_ind_y());
+		setZN(AC);
+		incPC(2);
+	},
+	0x35: function(){ // AND zpg, X
+		AC &= cpu_get(a_zpg_x());
+		setZN(AC);
+		incPC(2);
+	},
+	0x36: function(){ // rol zpg,x
+		var i = a_zpg_x();
+		CPUMEM[i] = rol(CPUMEM[i]);
+		setZN(CPUMEM[i]);
+		incPC(2);
+	},
+	0x38: function(){ // sec - set carry
+		SR_C = true;
+		incPC();
+	},
+	0x39: function(){ // AND abs,y
+		AC &= cpu_get(a_abs_y());
+		setZN(AC);
+		incPC(3);
+	},
+	0x3D: function(){ // AND abs,x
+		AC &= cpu_get(a_abs_x());
+		setZN(AC);
+		incPC(3);
+	},
+	0x3E: function(){ // rol abs,x
+		var i = a_abs_x(); 
+		CPUMEM[i] = rol(CPUMEM[i]);
+		setZN(CPUMEM[i]);
+		incPC(3);
+	},
+	0x40: function(){ // rti
+		setSR(pull() & 0xEF);
+		PC = pull16();
+	},
+	0x41: function(){ // eor (ind, X)
+		AC ^= cpu_get(a_ind_x());
+		setZN(AC);
+		incPC(2);
+	},
+	0x45: function(){ // eor zpg
+		AC ^= cpu_get(imm());
+		setZN(AC);
+		incPC(2);
+	},
+	0x46: function(){ // lsr zpg
+		var i = imm();
+		SR_C = !!(CPUMEM[i] & 0x01);
+		CPUMEM[i] >>= 1;
+		setZN(CPUMEM[i]);
+		incPC(2);
+	},
+	0x48: function(){ // PHA - push ac
+		push(AC);
+		incPC();
+	},
+	0x49: function(){ // eor imm8
+		AC ^= imm();
+		setZN(AC);
+		incPC(2);
+	},
+	0x4A: function(){ // LSR ac, (AC>>1)
+		SR_C = !!(AC & 0x01);
+		AC = AC >> 1;
+		setZN(AC);
+		incPC();
+	},
+	0x4C: function(){ // JMP abs
+		setPC(abs());
+	},
+	0x4D: function(){ // eor abs
+		AC ^= cpu_get(abs());
+		setZN(AC);
+		incPC(3);
+	},
+	0x4E: function(){ // lsr abs
+		var a = abs();
+		SR_C = !!(CPUMEM[a] & 0x01);
+		CPUMEM[a] >>= 1;
+		setZN(CPUMEM[a]);
+		incPC(3);
+	},
+	0x50: function(){ // bvc - branch if overflow clear
+		if(!SR_V){branch();}
+		else{incPC(2);}
+	},
+	0x51: function(){ // eor (ind),y
+		AC ^= cpu_get(a_ind_y());
+		setZN(AC);
+		incPC(2);
+	},
+	0x55: function(){ // eor zpg,x
+		AC ^= cpu_get(a_zpg_x());
+		setZN(AC);
+		incPC(2);
+	},
+	0x56: function(){ // lsr zpg,X
+		var i = a_zpg_x();
+		SR_C = !!(CPUMEM[i] & 0x01);
+		CPUMEM[i] >>= 1;
+		setZN(CPUMEM[i])
+		incPC(2);
+	},
+	0x58: function(){ // CLI clear interrupt disable
+		SR_I = false;
+		incPC();
+	},
+	0x59: function(){ // eor abs,y
+		AC ^= cpu_get(a_abs_y());
+		setZN(AC);
+		incPC(3);
+	},
+	0x5D: function(){ // eor abs,x
+		AC ^= cpu_get(a_abs_x());
+		setZN(AC);
+		incPC(3);
+	},
+	0x5E: function(){ // lsr abs,x
+		var a = a_abs_x();
+		SR_C = !!(CPUMEM[a] & 0x01);
+		CPUMEM[a] >>= 1;
+		setZN(CPUMEM[a]);
+		incPC(3);
+	},
+	0x60: function(){ // RTS - return from jsr (pull return address from stack and jump to it)
+		setPC(pull16()+1);
+	},
+	0x61: function(){ // ADC (ind,x)
+		var i = cpu_get(a_ind_x());
+		var result = AC + i + SR_C;
+		SR_V = !((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !!(result & 0x100);
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(2);
+	},
+	0x65: function(){ // ADC zpg
+		var i = cpu_get(imm());
+		var result = AC + i + SR_C;
+		SR_V = !((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !!(result & 0x100);
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(2);
+	},
+	0x66: function(){ // ror zpg
+		var i = imm();
+		CPUMEM[i] = ror(CPUMEM[i]);
+		setZN(CPUMEM[i]);
+		incPC(2);
+	},
+	0x68: function(){ // PLA - pull ac
+		AC = pull();
+		setZN(AC);
+		incPC();
+	},
+	0x69: function(){ // ADC imm
+		var i = imm();
+		var result = AC + i + SR_C;
+		SR_V = !((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !!(result & 0x100);
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(2);
+	},
+	0x6A: function(){ // ror AC
+		AC = ror(AC);
+		setZN(AC);
+		incPC();
+	},
+	0x6C: function(){ // JMP (abs)
+		setPC(cpu_get16i(abs()));
+	},
+	0x6D: function(){ // ADC abs
+		var i = cpu_get(abs());
+		var result = AC + i + SR_C;
+		SR_V = !((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !!(result & 0x100);
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(3);
+	},
+	0x6E: function(){ // ror abs
+		var i = abs();
+		CPUMEM[i] = ror(CPUMEM[i]);
+		setZN(CPUMEM[i]);
+		incPC(3);
+	},
+	0x70: function(){ // bvs - branch if overflow set
+		if(SR_V){branch();}
+		else{incPC(2);}
+	},
+	0x71: function(){ // ADC (ind),y
+		var i = cpu_get(a_ind_y());
+		var result = AC + i + SR_C;
+		SR_V = !((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !!(result & 0x100);
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(2);
+	},
+	0x75: function(){ // ADC zpg,x
+		var i = cpu_get(a_zpg_x());
+		var result = AC + i + SR_C;
+		SR_V = !((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !!(result & 0x100);
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(2);
+	},
+	0x76: function(){ // ror zpg,x
+		var i = a_zpg_x();
+		CPUMEM[i] = ror(CPUMEM[i]);
+		setZN(CPUMEM[i]);
+		incPC(2);
+	},
+	0x78: function(){ // SEI
+		SR_I = true;
+		incPC();
+	},
+	0x79: function(){ // ADC abs,y
+		var i = cpu_get(a_abs_y());
+		var result = AC + i + SR_C;
+		SR_V = !((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !!(result & 0x100); // set carry bit
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(3);
+	},
+	0x7D: function(){ // ADC abs,x
+		var i = cpu_get(a_abs_x());
+		var result = AC + i + SR_C;
+		SR_V = !((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !!(result & 0x100); // set carry bit
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(3);
+	},
+	0x7E: function(){ // ror abs,x
+		var i = a_abs_x();
+		CPUMEM[i] = ror(CPUMEM[i]);
+		setZN(CPUMEM[i]);
+		incPC(3);
+	},
+	0x81: function(){ // STA (ind,x)
+		cpu_set(a_ind_x(), AC);
+		incPC(2);
+	},
+	0x84: function(){ // STY zpg
+		cpu_set(imm(), YR);
+		incPC(2);
+	},
+	0x85: function(){ // STA zpg
+		cpu_set(imm(), AC);
+		incPC(2);
+	},
+	0x86: function(){ // STX zpg
+		cpu_set(imm(), XR);
+		incPC(2);
+	},
+	0x88: function(){ // dey - decrement yr
+		setZN(YR=(YR-1)&0xFF);
+		incPC();
+	},
+	0x8A: function(){ // TXA
+		AC = XR;
+		setZN(AC);
+		incPC();
+	},
+	0x8C: function(){ // sty abs
+		cpu_set(abs(), YR);
+		incPC(3);
+	},	
+	0x8D: function(){ // STA abs # good
+		cpu_set(abs(), AC);
+		incPC(3);
+	},
+	0x8E: function(){ // STX abs # good
+		cpu_set(abs(), XR);
+		incPC(3);
+	},
+	0x90: function(){ // BCC - branch if carry clear
+		if(!SR_C){branch();}
+		else{incPC(2);}
+	},
+	0x91: function(){ // STA (ind),y
+		cpu_set(a_ind_y(), AC);
+		incPC(2);
+	},
+	0x94: function(){ // STY zpg,x
+		cpu_set(a_zpg_x(), YR);
+		incPC(2);
+	},
+	0x95: function(){ // STA zpg,x
+		cpu_set(a_zpg_x(), AC);
+		incPC(2);
+	},
+	0x96: function(){ // STX zpg,y
+		cpu_set(a_zpg_y(), XR);
+		incPC(2);
+	},
+	0x98: function(){ // TYA
+		AC = YR;
+		setZN(AC);
+		incPC();
+	},
+	0x99: function(){ // sta abs+y
+		cpu_set(a_abs_y(), AC);
+		incPC(3);
+	},
+	0x9A: function(){ // TXS
+		SP = XR;
+		incPC();
+	},
+	0x9D: function(){ // sta abs+x
+		cpu_set(a_abs_x(), AC);
+		incPC(3);
+	},
+	0xA0: function(){ // ldy imm
+		YR = imm();
+		setZN(YR);
+		incPC(2);
+	},
+	0xA1: function(){ // lda (ind,x)
+		AC = cpu_get(a_ind_x());
+		setZN(AC);
+		incPC(2);
+	},
+	0xA2: function(){ // ldx imm
+		XR = imm();
+		setZN(XR);
+		incPC(2);
+	},
+	0xA4: function(){ // ldy zpg
+		YR = cpu_get(imm());
+		setZN(YR);
+		incPC(2);
+	},
+	0xA5: function(){ // lda zpg
+		AC = cpu_get(imm());
+		setZN(AC);
+		incPC(2);
+	},
+	0xA6: function(){ // ldx zpg
+		XR = cpu_get(imm());
+		setZN(XR);
+		incPC(2);
+	},
+	0xA8: function(){ // TAY
+		YR = AC;
+		setZN(YR);
+		incPC();
+	},
+	0xA9: function(){ // lda imm - load imm8 into AC
+		AC = imm();
+		setZN(AC);
+		incPC(2);
+	},
+	0xAA: function(){ // TAX
+		XR = AC;
+		setZN(XR);
+		incPC();
+	},
+	0xAC: function(){ // ldy abs
+		YR = cpu_get(abs());
+		setZN(YR);
+		incPC(3);
+	},
+	0xAD: function(){ // LDA abs (lb from 16bit abs address into AC)
+		AC = cpu_get(abs());
+		setZN(AC);
+		incPC(3);
+	},
+	0xAE: function(){ // ldx abs
+		XR = cpu_get(abs());
+		setZN(XR);
+		incPC(3);
+	},
+	0xB0: function(){ // bcs - branch if carry flag set
+		if(SR_C){branch();}
+		else{incPC(2);}
+	},
+	0xB1: function(){ // LDA (ind),y
+		AC = cpu_get(a_ind_y());
+		setZN(AC);
+		incPC(2);
+	},
+	0xB4: function(){ // ldy zpg,x
+		YR = cpu_get(a_zpg_x());
+		setZN(YR);
+		incPC(2);
+	},
+	0xB5: function(){ // lda zpg,x
+		AC = cpu_get(a_zpg_x());
+		setZN(AC);
+		incPC(2);
+	},
+	0xB6: function(){ // ldx zpg,y
+		XR = cpu_get(a_zpg_y());
+		setZN(XR);
+		incPC(2);
+	},
+	0xB8: function(){ // clv - clear overflow
+		SR_V = 0;
+		incPC();
+	},
+	0xB9: function(){ // LDA abs,y
+		AC = cpu_get(a_abs_y());
+		setZN(AC);
+		incPC(3);
+	},
+	0xBA: function(){ // TSX
+		XR = SP;
+		setZN(XR);
+		incPC();
+	},
+	0xBC: function(){ // ldy abs,x
+		YR = cpu_get(a_abs_x());
+		setZN(YR);
+		incPC(3);
+	},
+	0xBD: function(){ // LDA abs,X
+		AC = cpu_get(a_abs_x());
+		setZN(AC);
+		incPC(3);
+	},
+	0xBE: function(){ // ldx abs,y
+		XR = cpu_get(a_abs_y());
+		setZN(XR);
+		incPC(3);
+	},
+	0xC0: function(){ // cpy imm - compare Y register with imm
+		var i = imm();
+		SR_C = (YR >= i);
+		setZN((YR - i)&0xFF);
+		incPC(2);
+	},
+	0xC1: function(){ // cmp (ind, x)
+		var i = cpu_get(a_ind_x());
+		SR_C = (AC >= i);
+		setZN((AC-i)&0xFF);
+		incPC(2);
+	},
+	0xC4: function(){ // cpy zpg
+		var i = cpu_get(imm());
+		SR_C = (YR >= i);
+		setZN((YR - i)&0xFF);
+		incPC(2);
+	},
+	0xC5: function(){ // cmp zpg
+		var i = cpu_get(imm());
+		SR_C = (AC >= i);
+		setZN((AC-i)&0xFF);
+		incPC(2);
+	},
+	0xC6: function(){ // dec zpg
+		setZN(--CPUMEM[imm()] & 0xFF);
+		incPC(2); // flags, wrap
+	},
+	0xC8: function(){ // iny - increment yr
+		setZN(YR = (YR+1)&0xFF);
+		incPC();
+	},
+	0xC9: function(){ // cmp imm - compare AC with imm, set SR_C if AC >= imm, set SR_Z if AC == imm
+		var i = imm();
+		SR_C = (AC >= i);
+		setZN((AC-i)&0xFF);
+		incPC(2);
+	},
+	0xCA: function(){ // dex - decrement xr
+		setZN(XR = (XR-1)&0xFF);
+		incPC();
+	},
+	0xCC: function(){ // cpy abs
+		var i = cpu_get(abs());
+		SR_C = (YR >= i);
+		setZN((YR - i)&0xFF);
+		incPC(3);
+	},
+	0xCD: function(){ // cmp abs
+		var i = cpu_get(abs());
+		SR_C = (AC >= i);
+		setZN((AC-i)&0xFF);
+		incPC(3);
+	},
+	0xCE: function(){ // dec abs - decrement byte at abs
+		var a = abs();
+		var i = (cpu_get(a) - 1) & 0xFF;
+		rmw();
+		cpu_set(a, i);
+		setZN(i);
+		incPC(3);
+	},
+	0xD0: function(){ // bne - branch if z flag clear
+		if(!SR_Z){branch();}
+		else{incPC(2);}
+	},
+	0xD1: function(){ // cmp (ind),y
+		var i = cpu_get(a_ind_y());
+		SR_C = (AC >= i);
+		setZN((AC-i)&0xFF);
+		incPC(2);	
+	},
+	0xD5: function(){ // cmp zpg,x
+		var i = cpu_get(a_zpg_x());
+		SR_C = (AC >= i);
+		setZN((AC-i)&0xFF);
+		incPC(2);
+	},
+	0xD6: function(){ // dec zpg,x
+		setZN(--CPUMEM[a_zpg_x()] & 0xFF);
+		incPC(2);
+	},
+	0xD8: function(){ // CLD - clear decimal mode
+		SR_D = false;
+		incPC();
+	},
+	0xD9: function(){ // cmp abs,y
+		var i = cpu_get(a_abs_y());
+		SR_C = (AC >= i);
+		setZN((AC-i)&0xFF);
+		incPC(3);
+	},
+	0xDD: function(){ // cmp abs,x
+		var i = cpu_get(a_abs_x());
+		SR_C = (AC >= i);
+		setZN((AC-i)&0xFF);
+		incPC(3);
+	},
+	0xDE: function(){ // dec abs,x - decrement byte at abs,x
+		var a = a_abs_x();
+		var i = (cpu_get(a) - 1) & 0xFF;
+		rmw();
+		cpu_set(a, i);
+		setZN(i);
+		incPC(3);
+	},
+	0xE0: function(){ // cpx imm - compare X register with imm
+		var i = imm();
+		SR_C = (XR >= i);
+		setZN((XR - i)&0xFF);
+		incPC(2);
+	},
+	0xE1: function(){ // SBC (ind,x)
+		var i = cpu_get(a_ind_x());
+		var result = AC - i - !SR_C;
+		SR_V = !!((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !(result & 0x100); // clear carry bit
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(2);
+	},
+	0xE4: function(){ // cpx zpg
+		var i = cpu_get(imm());
+		SR_C = (XR >= i);
+		setZN((XR - i)&0xFF);
+		incPC(2);
+	},
+	0xE5: function(){ // SBC zpg
+		var i = cpu_get(imm());
+		var result = AC - i - !SR_C;
+		SR_V = !!((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !(result & 0x100); // clear carry bit
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(2);
+	},
+	0xE6: function(){ // INC zpg # rmw cycles good
+		var a = imm();
+		var i = (cpu_get(a) + 1) & 0xFF;
+		rmw();
+		cpu_set(a, i);
+		setZN(i);
+		incPC(2);
+	},
+	0xE8: function(){ // inx - increment xr # cycles good
+		setZN(XR = (XR+1)&0xFF);
+		incPC();
+	},
+	0xE9: function(){ // SBC imm
+		var i = imm();
+		var result = AC - imm() - !SR_C;
+		SR_V = !!((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !(result & 0x100); // clear carry bit
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(2);
+	},
+	0xEA: function(){ // NOP     // cycles good
+		incPC();
+	},
+	0xEC: function(){ // cpx abs // cycles good
+		var i = cpu_get(abs());
+		SR_C = (XR >= i);
+		setZN((XR - i)&0xFF);
+		incPC(3);
+	},
+	0xED: function(){ // SBC abs
+		var i = cpu_get(abs());
+		var result = AC - i - !SR_C;
+		SR_V = !!((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !(result & 0x100); // clear carry bit
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(3);
+	},
+	0xEE: function(){ // INC abs (mem) // cycles good
+		var a = abs();
+		var i = (cpu_get(a) + 1) & 0xFF;
+		rmw();
+		cpu_set(a, i);
+		setZN(i);
+		incPC(3);
+	},
+	0xF0: function(){ // beq - branch if z flag set
+		if(SR_Z){branch();}
+		else{incPC(2);}
+	},
+	0xF1: function(){ // SBC (ind),y
+		var i = cpu_get(a_ind_y());
+		var result = AC - i - !SR_C;
+		SR_V = !!((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !(result & 0x100); // clear carry bit
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(2);
+	},
+	0xF5: function(){ // SBC zpg,x
+		var i = cpu_get(a_zpg_x());
+		var result = AC - i - !SR_C;
+		SR_V = !!((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !(result & 0x100); // clear carry bit
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(2);
+	},
+	0xF6: function(){ // INC zpg,x // cycles good
+		var a = a_zpg_x();
+		var i = (cpu_get(a) + 1) & 0xFF;
+		rmw();
+		cpu_set(a, i);
+		setZN(i);
+		incPC(2);
+	},
+	0xF8: function(){ // sed
+		SR_D = true;
+		incPC();
+	},
+	0xF9: function(){ // SBC abs,y
+		var i = cpu_get(a_abs_y());
+		var result = AC - i - !SR_C;
+		SR_V = !!((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !(result & 0x100); // clear carry bit
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(3);
+	},
+	0xFD: function(){ // SBC abs,x
+		var i = cpu_get(a_abs_x());
+		var result = AC - i - !SR_C;
+		SR_V = !!((AC & 0x80) ^ (i & 0x80)) && !!((AC & 0x80) ^ (result & 0x80));
+		SR_C = !(result & 0x100); // clear carry bit
+		AC = result & 0xFF;
+		setZN(AC);
+		incPC(3);
+	},
+	0xFE: function(){ // INC abs,x
+		var a = a_abs_x();
+		var i = (cpu_get(a) + 1) & 0xFF;
+		rmw();
+		cpu_set(a, i);
+		setZN(i);
+		incPC(3);
+	}
+};
+var tmp = operations; // convert operations object to array, should make access significantly faster
+operations = [];
+for(i in tmp){
+	operations[i] = tmp[i];
+}
+tmp = undefined;
+
+// CPU execution/clock
+var clock; // JS Interval ID
+var steps = 0; // Step counter for performance tracking (inaccurate), gets reset every second
+setInterval(function(){speed.innerHTML = steps.formatted() + " ops/sec | "; steps = 0; speed.innerHTML += ((cycles - cycles_p)/1000000).toFixed(2) + " MHz"; cycles_p = cycles;}, 1000);
+function stop(){
+	running = 0;
+	clearInterval(clock);
+	cpustat.style.color = "#FFF";
+	showcpustat();
+	show(prgview);
+	stopbtn.disabled = true;
+	stepbtn.disabled = false;
+	gobtn.disabled = false;
+	godbgbtn.disabled = false;
+	dbg = true;
+}
+//var vbs = 0;
+function step(){
+	cycles += 2;
+	try {
+		operations[CPUMEM[PC]]();
+	} catch(e){
+		console.log(e);
+		var trace = "";
+		for(var i = 0; i < pctrace.length; i++){
+			trace += hex(pctrace[i],2) + ": " + hex(CPUMEM[pctrace[i]],2) + " ["+ hex(CPUMEM[pctrace[i]+1],2) + "][" + hex(CPUMEM[pctrace[i]+2],2) + "]\n";
+		}
+		alert("Bad opcode\n\nPC: "+hex(PC,4) + "\nOpcode: " + hex(CPUMEM[PC],2) + " ["+ hex(CPUMEM[PC+1],2) + "][" + hex(CPUMEM[PC+2],2) + "]\n\nPC trace:\n"+trace);
+		stop();
+		return 0;
+	}
+	//if(hooks.length) for(var i = 0; i < hooks.length; i++){hooks[i]();} // plugins
+	//if(pc_bp_check(PC)) {
+	//	stop();
+	//	show(PC);
+	//	console.log("PC Breakpoint: "+hex(PC,4));
+	//	return 0;
+	//}
+	if(PC > prgview+0x50) prgview = PC;
+	if(PC < prgview) prgview = PC - 0x25;
+	pctrace.shift();
+	pctrace.push(PC);
+	steps++;
+	cycles_v1 = cycles - cycles_v2;
+	if(cycles_v1 > 29833){ // 27384?
+		PPU.vblank = 1;
+		CPUMEM[0x2002] |= 0x80;
+		if(PPU.nmi){
+			cpu_interrupt(V_NMI);
+		}
+		cycles_v2 = cycles;
+		cycles_v1 = 0;
+	}
+	return 1;
+}
+var clockspeed = 8600; // change me in the console
+function go(){
+	cpustat.style.color = "#AAA";
+	godbgbtn.disabled = true;
+	gobtn.disabled = true;
+	stopbtn.disabled = false;
+	stepbtn.disabled = true;
+	dbg = false;
+	running = 1;
+	//draw_frame();
+	clearInterval(clock);
+	/*clock = setInterval(
+		function(){
+			for(var i = 0; i < clockspeed; i++){
+			if(!step()) break;
+			}
+		},
+		4
+	);*/
+}
+function goslow(){
+	stopbtn.disabled = false;
+	gobtn.disabled = true;
+	godbgbtn.disabled = true;
+	stepbtn.disabled = true;
+	clock = setInterval(
+		function(){
+			step();
+			show(prgview);
+			//showspr();
+			showcpustat();
+		},
+		1
+	);
+}
+function reset(){
+	spr_cache = [];
+	bg_cache = [];	
+	emudisplay.clearRect(0, 0, 256*scale, 240*scale);
+	emugfx.clearRect(0, 0, scale * 40, 4096);
+	cycles_v1 = 0;
+	cycles_v2 = 0;
+	cycles = 0;
+	//stop();
+	setSR(0x00);
+	PC = get16(0xFFFC);
+	AC = XR = YR = 0;
+	SP = 0xFD;
+	prgview = PC;
+	showcpustat();
+	show(prgview);
+}
+
+// 6502 dis/assembler ------------------
+
+// dis/asm functions
+function hexstr(arr){var ret =""; for(var i = 0; i < arr.length; i++){ret+=hex(arr[i]&0xFF,2) + " "};return ret;}
+function nf(){return "";}; // empty function
+// dis
+function dis_imm(m){return " <span class=\"dis_imm\">#</span><span class=\"dis_n\">$"+hex(CPUMEM[m+1],2)+"</span>";}
+function dis_rel(m){return " <span class=\"dis_n\">$"+hex(m+s8(CPUMEM[m+1]+2),4)+"</span>";}
+function dis_abs(m){return " <span class=\"dis_n\">$"+hex(CPUMEM[m+1] | CPUMEM[m+2] << 8, 4)+"</span>";}
+function dis_abs_ind(m){return " (<span class=\"dis_n\">$"+hex(CPUMEM[m+1] | CPUMEM[m+2] << 8, 4)+"</span>)";}
+function dis_abs_x(m){return "<span class=\"dis_n\">"+dis_abs(m)+"</span>,<span class=\"dis_xy\">X</span>";}
+function dis_abs_y(m){return "<span class=\"dis_n\">"+dis_abs(m)+"</span>,<span class=\"dis_xy\">Y</span>";}
+function dis_zpg(m){return " <span class=\"dis_n\">$"+hex(CPUMEM[m+1], 2)+"</span>";}
+function dis_zpg_x(m){return "<span class=\"dis_n\">"+dis_zpg(m)+"</span>,<span class=\"dis_xy\">X</span>"}
+function dis_zpg_y(m){return "<span class=\"dis_n\">"+dis_zpg(m)+"</span>,<span class=\"dis_xy\">Y</span>"}
+function dis_ind_x(m){return " (<span class=\"dis_n\">$"+hex(CPUMEM[m+1],2)+"</span>,<span class=\"dis_xy\">X</span>)";}
+function dis_ind_y(m){return " (<span class=\"dis_n\">$"+hex(CPUMEM[m+1],2)+"</span>),<span class=\"dis_xy\">Y</span>";}
+// match cap handlers
+function asm_int16(caps){
+	//console.log(caps);
+	var n = parseInt(caps[1], 16);
+	return [n & 0xFF, n >> 8];
+}
+function asm_int8(caps){
+	return [parseInt(caps[1],16) & 0xFF];
+}
+function asm_imm8(caps){
+	if(caps[1][0] == "$"){
+		return [parseInt(caps[1].substr(1), 16)];
+	}
+}
+function asm_rel(caps){
+	return [parseInt(caps[1]) & 0xFF];
+}
+function asm_impl(caps){
+	return [];
+}
+// opcode syntax/form table
+var syntax = {
+//  type:    [bytes, dis func, asm capture, capture handler]
+	impl:    [1, nf,          /^$/, asm_impl],
+	imm:     [2, dis_imm,     /^\#(\$[0-9A-Fa-f]{2}|[0-9]+)$/, asm_imm8],
+	zpg:     [2, dis_zpg,     /^\$([0-9A-Fa-f]{2})$/, asm_int8],
+	zpg_x:   [2, dis_zpg_x,   /^\$([0-9A-Fa-f]{2})[ \t+]*,[ \t+]*[xX]$/,asm_int8],
+	zpg_y:   [2, dis_zpg_y,   /^\$([0-9A-Fa-f]{2})[ \t+]*,[ \t+]*[yY]$/, asm_int8],
+	ind_x:   [2, dis_ind_x,   /^\(\$([0-9A-Fa-f]{2})[ \t]*,[ \t]*[xX]\)$/, asm_int8],
+	ind_y:   [2, dis_ind_y,   /^\(\$([0-9A-Fa-f]{2})\)[ \t]*,[ \t]*[yY]$/, asm_int8],
+	rel:     [2, dis_rel,     /^(-*[0-9]+)$/, asm_rel],
+	abs:     [3, dis_abs,     /^\$([A-Fa-f0-9]{4})$/, asm_int16],
+	abs_x:   [3, dis_abs_x,   /^\$([0-9A-Fa-f]{4})[ \t+]*,[ \t+]*[xX]$/, asm_int16],
+	abs_y:   [3, dis_abs_y,   /^\$([0-9A-Fa-f]{4})[ \t+]*,[ \t+]*[yY]$/, asm_int16],
+	abs_ind: [3, dis_abs_ind, /^\(\$([0-9A-Fa-f]{4})\)$/, asm_int16],
+};
+// opcodes
+var asm_ops = {
+//  op#:  ['name', 'syntax']
+// 	0x00: ['', ''], copyme
+	0x00: ['BRK', 'impl', 'opbrk'],
+	0x01: ['ORA', 'ind_x'],
+	0x05: ['ORA', 'zpg'],
+	0x06: ['ASL', 'zpg'],
+	0x08: ['PHP', 'impl'],
+	0x09: ['ORA', 'imm'],
+	0x0A: ['ASL', 'impl'],
+	0x0D: ['ORA', 'abs'],
+	0x0E: ['ASL', 'abs'],
+	0x10: ['BPL', 'rel', 'opjmp'],
+	0x11: ['ORA', 'ind_y'],
+	0x15: ['ORA', 'zpg_x'],
+	0x16: ['ASL', 'zpg_x'],
+	0x18: ['CLC', 'impl'],
+	0x19: ['ORA', 'abs_y'],
+	0x1D: ['ORA', 'abs_x'],
+	0x1E: ['ASL', 'abs_x'],
+	0x20: ['JSR', 'abs', 'opjmp'],
+	0x21: ['AND', 'ind_x'],
+	0x24: ['BIT', 'zpg'],
+	0x25: ['AND', 'zpg'],
+	0x26: ['ROL', 'zpg'],
+	0x28: ['PLP', 'impl'],
+	0x29: ['AND', 'imm'],
+	0x2A: ['ROL', 'impl'],
+	0x2C: ['BIT', 'abs'],
+	0x2D: ['AND', 'abs'],
+	0x2E: ['ROL', 'abs'],
+	0x30: ['BMI', 'rel', 'opjmp'],
+	0x31: ['AND', 'ind_y'],
+	0x35: ['AND', 'zpg_x'],
+	0x36: ['ROL', 'zpg_x'],
+	0x38: ['SEC', 'impl'],
+	0x39: ['AND', 'abs_y'],
+	0x3D: ['AND', 'abs_x'],
+	0x3E: ['ROL', 'abs_x'],
+	0x40: ['RTI', 'impl', 'opbrk'],
+	0x41: ['EOR', 'ind_x'],
+	0x45: ['EOR', 'zpg'],
+	0x46: ['LSR', 'zpg'],
+	0x48: ['PHA', 'impl'],
+	0x49: ['EOR', 'imm'],
+	0x4A: ['LSR', 'impl'],
+	0x4C: ['JMP', 'abs', 'opjmp'],
+	0x4D: ['EOR', 'abs'],
+	0x4E: ['LSR', 'abs'],
+	0x50: ['BVC', 'impl'],
+	0x51: ['EOR', 'ind_y'],
+	0x55: ['EOR', 'zpg_x'],
+	0x56: ['LSR', 'zpg_x'],
+	0x58: ['CLI', 'impl'],
+	0x59: ['EOR', 'abs_y'],
+	0x5D: ['EOR', 'abs_x'],
+	0x5E: ['LSR', 'abs_x'],
+	0x60: ['RTS', 'impl', 'opjmp'],
+	0x61: ['ADC', 'ind_x'],
+	0x65: ['ADC', 'zpg'],
+	0x66: ['ROR', 'zpg'],
+	0x68: ['PLA', 'impl'],
+	0x69: ['ADC', 'imm'],
+	0x6A: ['ROR', 'impl'],
+	0x6C: ['JMP', 'abs_ind', 'opjmp'],
+	0x6D: ['ADC', 'abs'],
+	0x6E: ['ROR', 'abs'],
+	0x70: ['BVS', 'impl'],
+	0x71: ['ADC', 'ind_x'],
+	0x75: ['ADC', 'zpg_x'],
+	0x76: ['ROR', 'zpg_x'],
+	0x78: ['SEI', 'impl'],
+	0x79: ['ADC', 'abs_y'],
+	0x7D: ['ADC', 'abs_x'],
+	0x7E: ['ROR', 'abs_x'],
+	0x81: ['STA', 'ind_x', 'dis_ls'],
+	0x84: ['STY', 'zpg', 'dis_ls'],
+	0x85: ['STA', 'zpg', 'dis_ls'],
+	0x86: ['STX', 'zpg', 'dis_ls'],
+	0x88: ['DEY', 'impl'],
+	0x8A: ['TXA', 'impl'],
+	0x8C: ['STY', 'abs', 'dis_ls'],
+	0x8D: ['STA', 'abs', 'dis_ls'],
+	0x8E: ['STX', 'abs', 'dis_ls'],
+	0x90: ['BCC', 'rel', 'opjmp'],
+	0x91: ['STA', 'ind_y', 'dis_ls'],
+	0x94: ['STY', 'zpg_x', 'dis_ls'],
+	0x95: ['STA', 'zpg_x', 'dis_ls'],
+	0x96: ['STX', 'zpg_y', 'dis_ls'],
+	0x98: ['TYA', 'impl'],
+	0x99: ['STA', 'abs_y', 'dis_ls'],
+	0x9A: ['TXS', 'impl'],
+	0x9D: ['STA', 'abs_x', 'dis_ls'],
+	0xA0: ['LDY', 'imm', 'dis_ls'],
+	0xA1: ['LDA', 'ind_x', 'dis_ls'],
+	0xA2: ['LDX', 'imm', 'dis_ls'],
+	0xA4: ['LDY', 'zpg', 'dis_ls'],
+	0xA5: ['LDA', 'zpg', 'dis_ls'],
+	0xA6: ['LDX', 'zpg', 'dis_ls'],
+	0xA8: ['TAY', 'impl'],
+	0xA9: ['LDA', 'imm', 'dis_ls'],
+	0xAA: ['TAX', 'impl'],
+	0xAC: ['LDY', 'abs', 'dis_ls'],
+	0xAD: ['LDA', 'abs', 'dis_ls'],
+	0xAE: ['LDX', 'abs', 'dis_ls'],
+	0xB0: ['BCS', 'rel', 'opjmp'],
+	0xB1: ['LDA', 'ind_y', 'dis_ls'],
+	0xB4: ['LDY', 'zpg_x', 'dis_ls'],
+	0xB5: ['LDA', 'zpg_x', 'dis_ls'],
+	0xB6: ['LDX', 'zpg_y', 'dis_ls'],
+	0xB8: ['CLV', 'impl'],
+	0xB9: ['LDA', 'abs_y', 'dis_ls'],
+	0xBA: ['TSX', 'impl'],
+	0xBC: ['LDY', 'abs_x', 'dis_ls'],
+	0xBD: ['LDA', 'abs_x', 'dis_ls'],
+	0xBE: ['LDX', 'abs_y', 'dis_ls'],
+	0xC0: ['CPY', 'imm'],
+	0xC1: ['CMP', 'ind_x'],
+	0xC4: ['CPY', 'zpg'],
+	0xC5: ['CMP', 'zpg'],
+	0xC6: ['DEC', 'zpg'],
+	0xC8: ['INY', 'impl'],
+	0xC9: ['CMP', 'imm'],
+	0xCA: ['DEX', 'impl'],
+	0xCC: ['CPY', 'abs'],
+	0xCD: ['CMP', 'abs'],
+	0xCE: ['DEC', 'abs'],
+	0xD0: ['BNE', 'rel', 'opjmp'],
+	0xD1: ['CMP', 'ind_y'],
+	0xD5: ['CMP', 'zpg_x'],
+	0xD6: ['DEC', 'zpg_x'],
+	0xD8: ['CLD', 'impl'],
+	0xD9: ['CMP', 'abs_y'],
+	0xDD: ['CMP', 'abs_x'],
+	0xDE: ['DEC', 'abs_x'],
+	0xE0: ['CPX', 'imm'],
+	0xE1: ['SBC', 'ind_x'],
+	0xE4: ['CPX', 'zpg'],
+	0xE5: ['SBC', 'zpg'],
+	0xE6: ['INC', 'zpg'],
+	0xE8: ['INX', 'impl'],
+	0xE9: ['SBC', 'imm'],
+	0xEA: ['NOP', 'impl', 'opnop'],
+	0xEC: ['CPX', 'abs'],
+	0xED: ['SBC', 'abs'],
+	0xEE: ['INC', 'abs'],
+	0xF0: ['BEQ', 'rel', 'opjmp'],
+	0xF1: ['SBC', 'ind_y'],
+	0xF5: ['SBC', 'zpg_x'],
+	0xF6: ['INC', 'zpg_x'],
+	0xF8: ['SED', 'impl'],
+	0xF9: ['SBC', 'abs_y'],
+	0xFD: ['SBC', 'abs_x'],
+	0xFE: ['INC', 'abs_x']
+};
+// assemble a line of text, return array of bytes
+function asm_line(str){
+	if(str == "") return [0xEA];
+	if(str[0] == "$") return [parseInt(str.substr(1),16)]; // single hex char
+	var line = str.split(/ (.+)/);
+	var opname = line[0].toUpperCase();
+	var args = line[1] || "";
+	var caps = null;
+	for(var i in asm_ops){
+		caps = args.match(syntax[asm_ops[i][1]][2]);
+		if(asm_ops[i][0] == opname && caps && caps.length){
+			var result = syntax[asm_ops[i][1]][3](caps) || [];
+			result.unshift(parseInt(i));
+			return result;
+		}
+	}
+}
+// asm editing input element
+var asm_editor = document.createElement("input");
+asm_editor.index = 0;
+asm_editor.address = 0;
+asm_editor.bytelen = 1;
+asm_editor.type = "text";
+asm_editor.style.position = "absolute";
+asm_editor.style.fontFamily = "consolas";
+asm_editor.style.fontSize = "11px";
+asm_editor.style.lineHeight = "11px";
+asm_editor.style.padding = "0px";
+asm_editor.style.paddingLeft = "1px";
+asm_editor.style.paddingTop = "1px";
+asm_editor.style.display = "none";
+asm_editor.style.border = "none";
+asm_editor.style.width = "140px";
+
+asm_editor.onkeydown = function(e){
+	if(e.keyCode == 27 || e.keyCode == 220){ this.style.display = "none";return false;}
+	
+}
+asm_editor.onkeyup = function(e){
+	if(e.keyCode == 13){
+		var result = asm_line(this.value);
+		while(result.length < this.bytelen) result.push(0xEA);
+		memcpy(result, 0, CPUMEM, this.address, result.length);
+		show(prgview);
+		this.editline(dis_line[this.index+1]);
+	}
+}
+asm_editor.onblur = function(){
+	this.style.display = "none";
+}
+asm_editor.editline = function(line){ // line being a dis_line element
+	this.index = line.index;
+	this.address = line.address;
+	this.bytelen = line.bytelen;
+	var i = line.index;
+	this.value = (dis_ops[i].innerHTML + dis_args[i].innerHTML).replace(/<[^>]*>/g, ""); // idgaf
+	this.selectionStart = 0;
+	this.selectionEnd = this.value.length;
+	var pos = line.getBoundingClientRect();
+	this.style.top = (pos.top-1+window.scrollY) + "px";
+	this.style.left = (pos.left-1) + "px";
+	this.style.display = "inline-block";
+	this.focus();
+}
+document.body.appendChild(asm_editor);
+
+// initialize elements
+var prg_seek = document.createElement("input");
+prg_seek.onkeydown = function(e){
+	if(e.key.length == 1 && !e.key.match(/^[\dA-Fa-f]$/)) return false;
+}
+var prg_main = document.createElement("div"); // a bunch of these should be done without js later
+prg_main.style.display = "flex";
+var prg_container = document.createElement("div");
+prg_container.style.display = "inline-block";
+var prg_scrollbar = document.createElement("div");
+var prg_sdown = document.createElement("div");
+prg_sdown.innerHTML = "&#9660;";
+prg_sdown.style.backgroundColor = "#AAA";
+prg_sdown.style.padding = "3px";
+var prg_sup = document.createElement("div");
+prg_sup.style.backgroundColor = "#AAA";
+prg_sup.style.padding = "3px";
+prg_sup.innerHTML = "&#9650;";
+var prg_sbuff = document.createElement("div");
+prg_sbuff.style.flex = "1";
+prg_scrollbar.style.flex = "1";
+prg_scrollbar.style.display = "flex";
+prg_scrollbar.style.flexDirection = "column";
+prg_scrollbar.style.backgroundColor = "#444";
+prg_scrollbar.appendChild(prg_sup);
+prg_scrollbar.appendChild(prg_sbuff);
+prg_scrollbar.appendChild(prg_sdown);
+prg_seek.type = "text";
+prg_seek.className = "prg-seek";
+prg_seek.onchange = function(){
+	var newaddr = parseInt(this.value,16);
+	prgview = newaddr;
+	show(newaddr);
+}
+data.appendChild(prg_seek);
+data.appendChild(prg_main);
+prg_main.appendChild(prg_container);
+prg_main.appendChild(prg_scrollbar);
+
+/*
+<div id="data">
+    <input class="prg-seek" type="text"></input>
+    <div style="display: flex;">
+        <div style="display: inline-block;"></div>
+        <div style="flex: 1 1 0%; display: flex; flex-direction: column; background-color: rgb(68, 68, 68);">
+            <div style="background-color: rgb(170, 170, 170); padding: 3px;">&#9650;</div>
+            <div style="flex: 1 1 0%;"></div>
+            <div style="background-color: rgb(170, 170, 170); padding: 3px;"> &#9660;</div>
+        </div>
+    </div>
+</div>
+*/
+
+var dis_addrs = [];
+var dis_hex = [];
+var dis_line = [];
+var dis_ops = [];
+var dis_args = [];
+for(var i = 0; i < 40; i++){
+	// make elements
+	var row = document.createElement("div");
+	dis_line[i] = document.createElement("div");
+	dis_line[i].className = "dis_line";
+	dis_line[i].style.display = "inline-block";
+	dis_line[i].index = i;
+	dis_line[i].address = 0;
+	dis_line[i].onclick = function(){
+		asm_editor.editline(this);
+	}
+	dis_addrs[i] = document.createElement("span");
+	dis_addrs[i].className = "dis_addr";
+	dis_addrs[i].onclick = function(){
+		pc_bp_toggle(this.address);
+		show(parseInt(prg_seek.value,16));
+	}
+	dis_hex[i] = document.createElement("div");
+	dis_hex[i].style.display = "inline-block";
+	dis_hex[i].style.minWidth = "54px";
+	dis_ops[i] = document.createElement("span");
+	dis_args[i] = document.createElement("span");
+	// append
+	dis_line[i].appendChild(dis_ops[i]);
+	dis_line[i].appendChild(dis_args[i]);
+	row.appendChild(dis_addrs[i]);
+	row.appendChild(dis_line[i]);
+	prg_container.appendChild(row);
+}
+
+function showspr(){
+	var el = document.getElementById("spr_ram");
+	var s = "<b>PPU OAM (display list)</b>\n";
+	for(var i = 0; i < 0x100; i++){
+		s += hex(PPU.spr_ram[i],2);
+		s += !((i+1)%16) ? "\n" : !((i+1)%4) ? " " : ""; 
+	}
+	el.innerHTML = s;
+}
+
+function show(address){
+	prg_seek.value = hex(address,4);
+	var i = 0;
+	for(var mem = address; mem < CPUMEM.length && i < 40; i++){
+		var code = CPUMEM[mem];
+		if(code in asm_ops){
+			var name = asm_ops[code][0];
+			var syn = syntax[asm_ops[code][1]];
+			var bytes = syn[0];
+			var fn = syn[1];
+			dis_ops[i].innerHTML = name;
+			dis_args[i].innerHTML = syn[1](mem);
+			dis_ops[i].className = asm_ops[code][2];
+		} else {
+			var fn = function(){return ''};
+			var bytes = 1;
+			dis_ops[i].innerHTML = "$"+hexstr(CPUMEM.subarray(mem, mem+1),2);
+			dis_args[i].innerHTML = "";
+			dis_ops[i].className = "dis_na";
+		}
+		dis_line[i].address = mem;
+		dis_line[i].bytelen = bytes;
+		dis_addrs[i].className = (PC == mem) ? "dis_addrpc" : "dis_addr";
+		var isbp = false;
+		if(pc_bp_check(mem)) dis_addrs[i].className += " dis_addrbp";
+		dis_addrs[i].address = mem;
+		dis_addrs[i].innerHTML = hex(mem,4);
+		mem += bytes;
+	}
+}
+
+var nes_colors = {
+	0x00: "#757575",
+	0x01: "#271B8F",
+	0x02: "#0000AB",
+	0x03: "#47009F",
+	0x04: "#8F0077",
+	0x05: "#AB0013",
+	0x06: "#A70000",
+	0x07: "#7F0B00",
+	0x08: "#432F00",
+	0x09: "#004700",
+	0x0A: "#005100",
+	0x0B: "#003F17",
+	0x0C: "#1B3F5F",
+	0x0D: "#000000",
+	0x0E: "#000000",
+	0x0F: "#000000",
+	0x10: "#BCBCBC",
+	0x11: "#0073EF",
+	0x12: "#233BEF",
+	0x13: "#8300F3",
+	0x14: "#BF00BF",
+	0x15: "#E7005B",
+	0x16: "#DB2B00",
+	0x17: "#CB4F0F",
+	0x18: "#8B7300",
+	0x19: "#009700",
+	0x1A: "#00AB00",
+	0x1B: "#00933B",
+	0x1C: "#00838B",
+	0x1D: "#000000",
+	0x1E: "#000000",
+	0x1F: "#000000",
+	0x20: "#FFFFFF",
+	0x21: "#3FBFFF",
+	0x22: "#5F97FF",
+	0x23: "#A78BFD",
+	0x24: "#F77BFF",
+	0x25: "#FF7763",
+	0x26: "#FF7763",
+	0x27: "#FF9B3B",
+	0x28: "#F3BF3F",
+	0x29: "#83D313",
+	0x2A: "#4FDF4B",
+	0x2B: "#58F898",
+	0x2C: "#00EBDB",
+	0x2D: "#000000",
+	0x2E: "#000000",
+	0x2F: "#000000",
+	0x30: "#FFFFFF",
+	0x31: "#ABE7FF",
+	0x32: "#C7D7FF",
+	0x33: "#D7CBFF",
+	0x34: "#FFC7FF",
+	0x35: "#FFC7DB",
+	0x36: "#FFBFB3",
+	0x37: "#FFDBAB",
+	0x38: "#FFE7A3",
+	0x39: "#E3FFA3",
+	0x3A: "#ABF3BF",
+	0x3B: "#B3FFCF",
+	0x3C: "#9FFFF3",
+	0x3D: "#000000",
+	0x3E: "#000000",
+	0x3F: "#000000"
+};
+
+function scanner_obj(){
+	var self = this;
+	this.memcache = {};
+	this.addr_start = 0x000;
+	this.addr_end = 0x800;
+	this.cache_new = function(){
+		self.memcache = {};
+		for(var i = self.addr_start; i < self.addr_end; i++) self.memcache[i] = CPUMEM[i];
+	}
+	this.cache_update = function(){
+		for(var i in self.memcache) self.memcache[i] = CPUMEM[i];
+	}
+	this.search_unchanged = function(){
+		for(var i in self.memcache) if(self.memcache[i] != CPUMEM[i]) delete self.memcache[i];
+	}
+	this.search_changed = function(){
+		for(var i in self.memcache) if(self.memcache[i] == CPUMEM[i]) delete self.memcache[i];
+		self.cache_update();
+	}
+	this.search_exact = function(value){
+		for(var i in self.memcache){
+			if(CPUMEM[i] != value) delete self.memcache[i];
+		}
+		self.cache_update();
+	}
+	this.search_decreased = function(){
+		for(var i in self.memcache){
+			if(CPUMEM[i] >= self.memcache[i]) delete self.memcache[i];
+		}
+		self.cache_update();
+	}
+	this.search_increased = function(){
+		for(var i in self.memcache){
+			if(CPUMEM[i] <= self.memcache[i]) delete self.memcache[i];
+		}
+		self.cache_update();
+	}
+	this.report = function(){
+		var j = 0;
+		var reportstr = "";
+		for(i in self.memcache){
+			reportstr += "\n" + hex(i, 4) + ": " + hex(self.memcache[i]);
+			if(j > 10){
+				reportstr += "\n[...]";
+				return 0;
+			}
+		}
+	}
+}
+
+var SCANNER = new scanner_obj();
+
+//showspr();
+showcpustat();
+show(0)
+draw_frame();
+memoryview_init();
+
+</script>
+
+
+<!-- NETPLAY CODE ---------------------------------------------->
+
+<script>
+
+var mycontroller         = NES.controller1;
+var mycontroller_gamepad = NES.controller1;
+var urcontroller         = NES.controller2;
+
+function p2(){
+	mycontroller = NES.controller2;	
+	urcontroller = NES.controller1;
+}
+
+function p2_gamepad(){
+	mycontroller_gamepad = NES.controller2;
+}
+
+/*
+var NES = {
+	// controller array: [A,B,Sel,Start,Up,Down,Left,Right],
+	controller1:    [0, 0, 0, 0, 0, 0, 0, 0], // button statuses
+	controller2:    [0, 0, 0, 0, 0, 0, 0, 0],
+};
+
+
+
+var keybindings = {
+	81:2, // Q -> select
+	69:3, // E -> start
+	77:0, // M -> A
+	78:1, // N -> B
+	68:7, // D -> Right
+	65:6, // A -> Left
+	87:4, // W -> Up
+	83:5  // S -> Down
+};
+
+document.body.onkeydown = function(e){
+	var k = e.keyCode;
+	if(k in keybindings) mycontroller[keybindings[k]] = 1;
+}
+document.body.onkeyup = function(e){
+	var k = e.keyCode;
+	if(k in keybindings) mycontroller[keybindings[k]] = 0;
+}
+*/
+/*
+var received = document.getElementById("received");
+var pps = document.getElementById("pps");
+var report = document.getElementById("report");
+var cmd = document.getElementById("cmd");
+var mykeys = document.getElementById("mykeys");
+cmd.onkeydown = function(e){
+	if(e.keyCode == 13) sendcmd();
+}
+var frames = 0;
+var secframes = 0;*/
+
+var report_current = "";
+window.WebSocket = WebSocket || MozWebSocket;
+
+//var socket = new WebSocket('ws://184.58.184.129:6502');
+var socket = new WebSocket('ws://98.103.244.58:6502');
+socket.onopen = function(event) {
+	socket.send('ping');
+};
+socket.onmessage = function(e) {
+	var data = e.data.toString();
+	console.log(data);
+	if(report_current != data){
+		report_current = data;
+		//report.innerHTML = data;
+		var pressed = [0,0,0,0,0,0,0,0];
+		switch(data[0]){
+			case "[":
+				pressed = JSON.parse(data);
+				for(var i = 0; i < 8; i++){
+					urcontroller[i] = pressed[i];
+				}
+				console.log(pressed);
+				break;
+			case "r":
+				console.log("received reset request from netplay server");
+				reset();
+				break;
+			case "s":
+				console.log("received stop request from netplay server");
+				stop();
+				break;
+			case "g":
+				console.log("received go request from netplay server");
+				go();
+				break;
+		}
+
+	}
+	//received.innerHTML = frames;
+	//frames++;
+}
+
+socket.onclose = function(e){
+	//alert("server closed connection");
+}
+
+function sendcmd(){
+	socket.send(cmd.value);
+	cmd.value = "";
+}
+
+var keysch = [0,0,0,0,0,0,0,0];
+
+function keyloop(){
+	var changed = false;
+	for(var i = 0; i < mycontroller.length; i++){
+		if(mycontroller[i] != keysch[i]){
+			keysch[i] = mycontroller[i];
+			changed = true;
+		}
+	}
+	if(changed){
+		var newkeys = JSON.stringify(mycontroller);
+		//mykeys.innerHTML = newkeys;
+		console.log(newkeys);
+		socket.send("btn " + JSON.stringify(mycontroller));
+	}
+	//requestAnimationFrame(keyloop);
+}
+keyloop();
+</script>
+
+
+</.body> <!-- webhost ads -->
