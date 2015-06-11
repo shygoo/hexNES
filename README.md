@@ -3,6 +3,7 @@ hexNES
 Web-based NES Emulator that uses javascript and the HTML5 canvas
 
 <a href="http://origami64.net/showthread.php?tid=122">Discussion thread</a>
+<a href="http://htmlpreview.github.io/?https://github.com/shygoo/hexNES/blob/master/hexNES.htm">Demo current build</a>
 
 Keyboard bindings:
  Select: Q
