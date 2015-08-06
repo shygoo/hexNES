@@ -685,7 +685,7 @@ function srstat(){
 }
 function showcpustat(){
 	// this is all very slow and should use DOM functions later
-	var cpustatstr = "<table><tr><td style=\"border-left:none;\"><center><b>6502 Registers</b></center>";
+	var cpustatstr = "<table style=\"white-space:pre;color:#FFF;\"><tr><td style=\"border-left:none;\"><center><b>6502 Registers</b></center>";
 	cpustatstr += "PC: " + hex(PC,4) + "\nAC: " + hex(AC,2) + " / XR: " + hex(XR,2) + " / YR: " + hex(YR,2) + "\nSP: " + hex(SP,2) + "\n";
 	cpustatstr += "SR: " + hex(getSR(),2) + " " + srstat() + "<hr>";
 	cpustatstr += "<b>Vectors</b><br>NMI: "+hex(get16(V_NMI))+" / RST: "+hex(get16(V_RST))+" / BRK: "+hex(get16(V_BRK)) + "<hr>";
