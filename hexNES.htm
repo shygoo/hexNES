@@ -15,13 +15,15 @@ queueRAM
 <html>
 <head>
 <title>hexNES Alpha</title>
+<meta charset="UTF-8">
 <style>
 body{background-color:#EEE;}
-body, pre, select{font-family:consolas;font-size:11px;}
+body, pre, select, table{font-family:consolas;font-size:11px;}
 button, input[type='file']{font-family:tahoma,verdana,arial;font-size:11px;}
 #fileInput{border: 1px solid #AAA;padding:5px;}
 #romstat{border:1px solid #AAA;display:inline-block;padding:5px;background-color:#000;color:#FFF;}
 #cpustat{border:1px solid #AAA;display:inline-block;padding:5px;background-color:#000;color:#FFF;line-height:11px;}
+#memoryview{display:inline-block;}
 #speed{border:1px solid #AAA;padding:2px;width:200px;display:inline-block;background-color:#DDD;}
 .pc{background-color:#660;color:#FFF;}
 .sp{background-color:#066;color:#FFF;}
@@ -132,12 +134,13 @@ user-select: none;}
 <!--Pattern table pre-render:<br>-->
 <canvas id="emuframe" width="80" height="2048" style="background-color:#000;display:none;">This text is displayed if your browser does not support HTML5 Canvas.</canvas>
 <canvas id="emubg" height="480" width="1024" style="background-color:#000;vertical-align:top;display:none;"></canvas>
-<img src="http://file.s.gp/scanlines.jpg" id="scanlines" style="display:none;"><br>
-<img src="http://file.s.gp/nes-controller.png" id="controller" style="display:none;">
+<!-- <img src="http://file.s.gp/scanlines.jpg" id="scanlines" style="display:none;"><br>  -->
+<!-- <img src="http://file.s.gp/nes-controller.png" id="controller" style="display:none;">-->
 <canvas id="scanlines_canvas" width="2048" height="240" style="display:none;"></canvas>
 <canvas id="controller_canvas" width="60" height="24" style="display:none;"></canvas>
 <script>
 
+/*
 var monitor_hz = 0;
 
 function hzBenchmarker(){
@@ -162,11 +165,11 @@ var hz = new hzBenchmarker();
 hz.done = function(){
 	monitor_hz = this.result;
 	console.log("Monitor benchmarked @ " + monitor_hz + "Hz");
-}
+}*/
 
 document.body.onload = function(){
-	hz.run();
-	scanlines_display.globalAlpha = 0.30; scanlines_display.drawImage(scanlines, 0, 0, 2048, 240);
+	//hz.run();
+	//scanlines_display.globalAlpha = 0.30; scanlines_display.drawImage(scanlines, 0, 0, 2048, 240);
 }
 
 function readme(){
@@ -361,7 +364,7 @@ memoryview_chipselect.onchange = function(){
 	memoryview_chip = window[this.value];
 }
 controller_display.globalAlpha = 0.80;
-controller_display.drawImage(controller_im, 0, 0, 60, 24);
+//controller_display.drawImage(controller_im, 0, 0, 60, 24);
 
 fileInput.value = "";
 
@@ -385,7 +388,7 @@ emu.ondblclick = function(){
 hostrom.selectedIndex = 0;
 hostrom.onchange = function(){
 	stop();
-	ajax.open("GET", "http://file.s.gp/nesroms/"+hostrom.value, true);
+	ajax.open("GET", "http://54.148.172.211/nes/roms"+hostrom.value, true);
 	ajax.responseType = "arraybuffer";
 	ajax.send();
 }
@@ -2624,55 +2627,55 @@ var frames = 0;
 var secframes = 0;*/
 
 var report_current = "";
-window.WebSocket = WebSocket || MozWebSocket;
+//window.WebSocket = WebSocket || MozWebSocket;
 
 //var socket = new WebSocket('ws://184.58.184.129:6502');
-var socket = new WebSocket('ws://98.103.244.58:6502');
-socket.onopen = function(event) {
-	socket.send('ping');
-};
-socket.onmessage = function(e) {
-	var data = e.data.toString();
-	console.log(data);
-	if(report_current != data){
-		report_current = data;
-		//report.innerHTML = data;
-		var pressed = [0,0,0,0,0,0,0,0];
-		switch(data[0]){
-			case "[":
-				pressed = JSON.parse(data);
-				for(var i = 0; i < 8; i++){
-					urcontroller[i] = pressed[i];
-				}
-				console.log(pressed);
-				break;
-			case "r":
-				console.log("received reset request from netplay server");
-				reset();
-				break;
-			case "s":
-				console.log("received stop request from netplay server");
-				stop();
-				break;
-			case "g":
-				console.log("received go request from netplay server");
-				go();
-				break;
-		}
-
-	}
-	//received.innerHTML = frames;
-	//frames++;
-}
-
-socket.onclose = function(e){
-	//alert("server closed connection");
-}
-
-function sendcmd(){
-	socket.send(cmd.value);
-	cmd.value = "";
-}
+//var socket = new WebSocket('ws://98.103.244.58:6502');
+//socket.onopen = function(event) {
+//	socket.send('ping');
+//};
+//socket.onmessage = function(e) {
+//	var data = e.data.toString();
+//	console.log(data);
+//	if(report_current != data){
+//		report_current = data;
+//		//report.innerHTML = data;
+//		var pressed = [0,0,0,0,0,0,0,0];
+//		switch(data[0]){
+//			case "[":
+//				pressed = JSON.parse(data);
+//				for(var i = 0; i < 8; i++){
+//					urcontroller[i] = pressed[i];
+//				}
+//				console.log(pressed);
+//				break;
+//			case "r":
+//				console.log("received reset request from netplay server");
+//				reset();
+//				break;
+//			case "s":
+//				console.log("received stop request from netplay server");
+//				stop();
+//				break;
+//			case "g":
+//				console.log("received go request from netplay server");
+//				go();
+//				break;
+//		}
+//
+//	}
+//	//received.innerHTML = frames;
+//	//frames++;
+//}
+//
+//socket.onclose = function(e){
+//	//alert("server closed connection");
+//}
+//
+//function sendcmd(){
+//	socket.send(cmd.value);
+//	cmd.value = "";
+//}
 
 var keysch = [0,0,0,0,0,0,0,0];
 
@@ -2687,8 +2690,8 @@ function keyloop(){
 	if(changed){
 		var newkeys = JSON.stringify(mycontroller);
 		//mykeys.innerHTML = newkeys;
-		console.log(newkeys);
-		socket.send("btn " + JSON.stringify(mycontroller));
+		//console.log(newkeys);
+		//socket.send("btn " + JSON.stringify(mycontroller));
 	}
 	//requestAnimationFrame(keyloop);
 }
@@ -2696,4 +2699,4 @@ keyloop();
 </script>
 
 
-</.body> <!-- webhost ads -->
+</body>
