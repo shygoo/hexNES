@@ -388,7 +388,7 @@ emu.ondblclick = function(){
 hostrom.selectedIndex = 0;
 hostrom.onchange = function(){
 	stop();
-	ajax.open("GET", "http://54.148.172.211/nes/roms"+hostrom.value, true);
+	ajax.open("GET", "./roms/" + hostrom.value, true);
 	ajax.responseType = "arraybuffer";
 	ajax.send();
 }
